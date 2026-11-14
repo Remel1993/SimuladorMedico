@@ -7,6 +7,7 @@ import {
   UserEvaluationInput,
   VitalSigns,
 } from '../types/clinical';
+import { auditMedicationPlanSafety } from './statStabilization';
 
 function normStr(s: string): string {
   return (s || '')
@@ -577,6 +578,23 @@ function checkCriticalSafetyErrors(
     }
   }
 
+  // 18. Pediatría (< 12 años) + Ácido Acetilsalicílico (Riesgo de Síndrome de Reye)
+  if ((caseData.patientInfo?.age ?? 30) < 12) {
+    if (/\b(aspirina|acido acetilsalicilico|aas|asa)\b/.test(activeRxOnly)) {
+      errors.push(
+        '¡ERROR CRÍTICO PEDIÁTRICO!: Prescripción de Ácido Acetilsalicílico (Aspirina) en menor de 12 años; riesgo de Síndrome de Reye potencialmente mortal.'
+      );
+    }
+  }
+
+  // 19. Auditoría posológica, de vía y sobredosis letales sobre fármacos prescritos
+  const planAudit = auditMedicationPlanSafety(submission.pharmacologicalPlan || [], caseData);
+  for (const planErr of planAudit.errors) {
+    if (!errors.some((e) => normStr(e) === normStr(planErr))) {
+      errors.push(planErr);
+    }
+  }
+
   return errors;
 }
 
@@ -728,7 +746,7 @@ function isLethalSafetyError(errMsg: string, caseData: ClinicalCase): boolean {
     return hasImmediateVitalThreat(caseData);
   }
 
-  return /\b(alergi|anafilax|choque anafilactico|hiperpotasemia|fibrilacion ventricular|asistolia|omision de adrenalina|antiagregante|dengue.*(aines|aspirina|hemorragia)|metotrexato|stevens|serotoninergico|depresion respiratoria|paro ventilatorio|wernicke|crisis adrenergica|broncoespasmo severo|hipotension iatrogenica|hipoglucemia iatrogenica|descenso glucemico excesivo|hipermagnesemia|hemorragia digestiva)\b/.test(
+  return /\b(muerte inmediata|alergi|anafilax|choque anafilactico|hiperpotasemia|fibrilacion ventricular|asistolia|paro cardiaco|paro ventilatorio|paro respiratorio|apnea|omision de adrenalina|antiagregante|dengue.*(aines|aspirina|hemorragia)|metotrexato|stevens|serotoninergico|depresion respiratoria|wernicke|crisis adrenergica|crisis hipertensiva|broncoespasmo severo|hipotension iatrogenica|shock vasoplejico|choque cardiogenico|hipoglucemia iatrogenica|descenso glucemico excesivo|neuroglucopen|coma|hipermagnesemia|hemorragia|exsanguinacion|sobredosis|dosis letal|riesgo letal|necrosis hepatica|hepatotoxic|edema pulmonar|sobrecarga hidrica|sindrome de reye|perforacion)\b/.test(
     nErr
   );
 }
@@ -1528,12 +1546,14 @@ export function buildDidacticEvaluation(
 
   // 6. TRATAMIENTO Y RÉGIMEN FARMACOLÓGICO (0 a 15 pts) — Normativa Nicaragüense (MINSA LBM) + Estándar Internacional
   const userRx = (submission.pharmacologicalPlan || []).filter((r) => (r.drug || '').trim().length >= 2);
+  const planAuditForScoring = auditMedicationPlanSafety(userRx, caseData);
+  const safeUserRx = userRx.filter((r) => !planAuditForScoring.unsafeMedicationIds.has(r.id));
   const optRx = solution.optimalTreatment?.pharmacological || [];
   const activeGeneralForRx = stripNegatedMedicationClauses(submission.generalMeasures || '');
   const userRxAndMeasuresText = normStr(
-    `${userRx.map((r) => `${r.drug} ${r.dose} ${r.route}`).join(' ')} ${activeGeneralForRx}`
+    `${safeUserRx.map((r) => `${r.drug} ${r.dose} ${r.route}`).join(' ')} ${activeGeneralForRx}`
   );
-  const userRxOnlyNorm = normStr(userRx.map((r) => `${r.drug} ${r.dose} ${r.route}`).join(' '));
+  const userRxOnlyNorm = normStr(safeUserRx.map((r) => `${r.drug} ${r.dose} ${r.route}`).join(' '));
   const diagNormForRx = normStr(solution.correctDiagnosis || '');
 
   const matchedDrugs: string[] = [];
@@ -1551,7 +1571,7 @@ export function buildDidacticEvaluation(
     }
   }
 
-  const completeRxCount = userRx.filter(
+  const completeRxCount = safeUserRx.filter(
     (r) => (r.drug || '').trim() && (r.dose || '').trim() && (r.route || '').trim() && (r.frequency || '').trim()
   ).length;
   const generalTextTrimmed = (submission.generalMeasures || '').trim();
@@ -1576,15 +1596,15 @@ export function buildDidacticEvaluation(
     }
     const posologyBonus =
       matchedDrugs.length > 0 && completeRxCount > 0
-        ? completeRxCount >= userRx.length
+        ? completeRxCount >= safeUserRx.length
           ? 3
           : 2
         : 0;
     const generalBonus = hasGeneralMeasures ? 2 : 0;
-    const effortFloor = userRx.length > 0 && matchedDrugs.length === 0 ? 1 : 0;
+    const effortFloor = safeUserRx.length > 0 && matchedDrugs.length === 0 ? 1 : 0;
     treatScore = Math.min(15, Math.round(drugRatio * 10) + posologyBonus + generalBonus + effortFloor);
   } else {
-    treatScore = Math.min(15, userRx.length * 4 + (hasGeneralMeasures ? 2 : 0));
+    treatScore = Math.min(15, safeUserRx.length * 4 + (hasGeneralMeasures ? 2 : 0));
   }
 
   const criticalSafetyErrors = checkCriticalSafetyErrors(submission, caseData);
@@ -1660,13 +1680,29 @@ export function buildDidacticEvaluation(
   for (const adv of adverseStatEvents) {
     const commentNorm = normStr(adv.comment);
     const isSeverePhysiologicStatHarm =
-      /\b(crisis adrenergica|descarga adrenergica|broncoespasmo severo|depresion respiratoria|hipotension iatrogenica|descenso tensional demasiado brusco|hipoglucemia iatrogenica|descenso glucemico excesivo|hipermagnesemia|agravamiento de edema|sobrecarga hidrica|narcosis hipercapnica)\b/.test(
+      /\b(crisis adrenergica|crisis hipertensiva|descarga adrenergica|broncoespasmo severo|depresion respiratoria|paro respiratorio|paro cardiaco|fibrilacion ventricular|hipotension iatrogenica|shock vasoplejico|choque cardiogenico|descenso tensional demasiado brusco|hipoglucemia iatrogenica|descenso glucemico excesivo|sobredosis|neuroglucopen|coma|hipermagnesemia|agravamiento de edema|sobrecarga hidrica|narcosis hipercapnica|hemorragia|anafilactica|nefrotoxicidad|wernicke|perforacion|contraindicacion|error critico|arritmia|necrosis hepatica)\b/.test(
         commentNorm
       );
     if (!isSeverePhysiologicStatHarm) continue;
     const msg = `¡EVENTO ADVERSO EN ESTABILIZACIÓN STAT!: ${adv.drug} (${adv.dose}, ${adv.route}) — ${adv.comment}`;
-    if (!criticalSafetyErrors.some((e) => normStr(e).includes(normStr(adv.drug).slice(0, 8)))) {
+    if (
+      !criticalSafetyErrors.some(
+        (e) =>
+          normStr(e).includes(normStr(adv.drug).slice(0, 8)) &&
+          normStr(e).includes(normStr(adv.dose).slice(0, 5))
+      )
+    ) {
       criticalSafetyErrors.push(msg);
+    }
+  }
+
+  const immediateDeathRecord = statList.find((s) => s.isImmediateDeath);
+  if (immediateDeathRecord) {
+    const deathReasonText =
+      immediateDeathRecord.immediateDeathReason || immediateDeathRecord.physiologicalEffectSummary;
+    const deathMsg = `¡MUERTE INMEDIATA POR IATROGENIA!: ${immediateDeathRecord.drug} (${immediateDeathRecord.dose}, ${immediateDeathRecord.route}) — ${deathReasonText}`;
+    if (!criticalSafetyErrors.some((e) => normStr(e).includes('muerte inmediata'))) {
+      criticalSafetyErrors.unshift(deathMsg);
     }
   }
 
@@ -1676,7 +1712,10 @@ export function buildDidacticEvaluation(
   let statNarrative =
     'Caso sin requerimiento crítico de estabilización STAT inmediata en sala de choque.';
 
-  if (adverseStatEvents.length > 0) {
+  if (immediateDeathRecord) {
+    statOverallVerdict = 'riesgo_critico';
+    statNarrative = `MUERTE INMEDIATA POR IATROGENIA: La administración de ${immediateDeathRecord.drug} (${immediateDeathRecord.dose}, ${immediateDeathRecord.route}) causó colapso cardiorrespiratorio fulminante en el acto (${immediateDeathRecord.immediateDeathReason || immediateDeathRecord.physiologicalEffectSummary}).`;
+  } else if (adverseStatEvents.length > 0) {
     statOverallVerdict = 'riesgo_critico';
     statNarrative = `Se aplicaron ${statList.length} intervención(es) STAT, pero ${adverseStatEvents.length} produjo deterioro fisiológico o evento adverso por dosis excesiva o contraindicación.`;
   } else if (statList.length > 0) {
@@ -1704,6 +1743,12 @@ export function buildDidacticEvaluation(
     vitalEvolutionSummary,
     narrative: statNarrative,
     interventionReviews,
+    ...(immediateDeathRecord
+      ? {
+          immediateDeathReason:
+            immediateDeathRecord.immediateDeathReason || immediateDeathRecord.physiologicalEffectSummary,
+        }
+      : {}),
   };
 
   if (criticalSafetyErrors.length > 0) {
@@ -2253,23 +2298,57 @@ export function determineClinicalOutcome(
     (!evaluation.userSummary?.primaryDiagnosis && (evaluation.userSummary?.pharmacologicalPlan.length || 0) === 0);
 
   const finalVitals = evaluation.userSummary?.finalVitalSigns || caseData.vitalSigns;
+  const endBpSys = finalVitals ? parseBloodPressurePair(finalVitals.bloodPressure).sys : 120;
+  const isImmediateIatrogenicDeath = Boolean(
+    evaluation.statAudit?.immediateDeathReason ||
+      (finalVitals && (finalVitals.heartRate === 0 || finalVitals.bloodPressure.startsWith('0/')))
+  );
+  const unrescuedFatalIatrogenicVitals = Boolean(
+    finalVitals &&
+      ((typeof finalVitals.bloodGlucose === 'number' && finalVitals.bloodGlucose < 35) ||
+        finalVitals.glasgow <= 6 ||
+        finalVitals.respiratoryRate <= 6 ||
+        endBpSys < 65)
+  );
+  const nonStatPlan = (evaluation.userSummary?.pharmacologicalPlan || []).filter(
+    (m) => !m.id.startsWith('med-stat-')
+  );
+  const hasFatalDefinitivePrescription =
+    nonStatPlan.length > 0 &&
+    auditMedicationPlanSafety(nonStatPlan, caseData).errors.some((e) =>
+      /\b(sobredosis letal|riesgo letal|paro cardiaco|fibrilacion ventricular|paro ventilatorio|apnea|exanguinacion|coma neuroglucopenico)\b/.test(
+        normStr(e)
+      )
+    );
+  const unrescuedFatalError =
+    isImmediateIatrogenicDeath || unrescuedFatalIatrogenicVitals || hasFatalDefinitivePrescription;
+
   const realVitalsLine = finalVitals
-    ? `PA: ${finalVitals.bloodPressure.split(' ')[0]} mmHg · FC: ${finalVitals.heartRate} lpm · FR: ${finalVitals.respiratoryRate} rpm · SpO₂: ${finalVitals.oxygenSaturation}%`
+    ? `PA: ${finalVitals.bloodPressure.split(' ')[0]} mmHg · FC: ${finalVitals.heartRate} lpm · FR: ${finalVitals.respiratoryRate} rpm · SpO₂: ${finalVitals.oxygenSaturation}%${typeof finalVitals.bloodGlucose === 'number' ? ` · Gluc: ${finalVitals.bloodGlucose} mg/dL` : ''}`
     : 'PA y FC estables · SatO₂ 98% · Sin compromiso vital agudo';
 
-  // 1. Fallecimiento (Código Azul): ÚNICAMENTE ante amenaza vital real + error potencialmente letal o abandono en emergencia crítica
+  // 1. Fallecimiento (Código Azul): ante iatrogenia inmediata, iatrogenia/sobredosis letal no revertida o amenaza vital crítica
   if (
-    vitalThreat &&
-    (hasLethalError || noWorkDone || (score < 30 && (/\bNivel I\b/.test(triage) || unstableBaseline)))
+    unrescuedFatalError ||
+    (vitalThreat &&
+      (hasLethalError || noWorkDone || (score < 30 && (/\bNivel I\b/.test(triage) || unstableBaseline))))
   ) {
     return {
       status: 'deceased',
-      badgeLabel: 'CÓDIGO AZUL · SALA DE CHOQUE',
+      badgeLabel: isImmediateIatrogenicDeath
+        ? 'CÓDIGO AZUL · MUERTE INMEDIATA POR IATROGENIA'
+        : unrescuedFatalError
+          ? 'CÓDIGO AZUL · IATROGENIA LETAL'
+          : 'CÓDIGO AZUL · SALA DE CHOQUE',
       headline: `Desenlace Fatal: ${name} ha fallecido`,
-      sceneNarrative: hasLethalError
-        ? `Minutos después de iniciar la conducta prescrita, ${name} presentó colapso hemodinámico súbito refractario e insuficiencia orgánica aguda debido a su compromiso crítico basal y la contraindicación aplicada. A pesar de 30 minutos de maniobras avanzadas de reanimación, el monitor mostró asistolia irreversible.`
-        : `Debido a la ausencia o demora crítica en las intervenciones salvadoras requeridas para su estado de choque/emergencia vital, ${name} evolucionó hacia parada cardiorrespiratoria irreversible en sala de choque.`,
-      vitalMonitorStatus: 'PA: 0/0 mmHg · FC: 0 lpm (Asistolia) · SatO2: --%',
+      sceneNarrative: isImmediateIatrogenicDeath
+        ? `Tras la administración STAT fatal (${evaluation.statAudit?.immediateDeathReason || 'iatrogenia farmacológica inmediata'}), ${name} entró de manera fulminante en parada cardiorrespiratoria refractaria e irreversible en el acto, mostrando trazo isoeléctrico (asistolia).`
+        : unrescuedFatalError
+          ? `Tras la administración o prescripción de una dosis letal o farmacológicamente incompatible, ${name} evolucionó rápidamente a fallo orgánico agudo irreversible (${unrescuedFatalIatrogenicVitals ? `signos críticos terminales: ${realVitalsLine}, Glasgow ${finalVitals.glasgow}/15` : 'toxicidad aguda fulminante'}). A pesar de las maniobras avanzadas de reanimación, el monitor mostró asistolia.`
+          : hasLethalError
+            ? `Minutos después de iniciar la conducta prescrita, ${name} presentó colapso hemodinámico súbito refractario e insuficiencia orgánica aguda debido a su compromiso crítico basal y la contraindicación aplicada. A pesar de 30 minutos de maniobras avanzadas de reanimación, el monitor mostró asistolia irreversible.`
+            : `Debido a la ausencia o demora crítica en las intervenciones salvadoras requeridas para su estado de choque/emergencia vital, ${name} evolucionó hacia parada cardiorrespiratoria irreversible en sala de choque.`,
+      vitalMonitorStatus: 'PA: 0/0 mmHg · FC: 0 lpm (Asistolia) · SatO2: 0%',
       clinicalPostscript: 'Se declara hora oficial de defunción y el caso pasa a sesión de comité de morbimortalidad hospitalaria.',
     };
   }

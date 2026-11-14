@@ -80,7 +80,12 @@ export interface ClinicalSolution {
   optimalTreatment: {
     pharmacological: Array<{ drug: string; dose: string; route: string; frequency: string; duration: string; rationale: string }>;
     generalMeasures: string[];
-    hospitalizationDecision: 'Ambulatorio' | 'Observación Urgencias' | 'Hospitalización en Sala' | 'Unidad de Cuidados Intensivos (UCI)';
+    hospitalizationDecision:
+      | 'Ambulatorio'
+      | 'Observación Urgencias'
+      | 'Hospitalización en Sala'
+      | 'Quirófano / Cirugía de Urgencia'
+      | 'Unidad de Cuidados Intensivos (UCI)';
     referralCriteria: string[];
     followUp: string;
   };

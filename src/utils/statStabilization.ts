@@ -589,10 +589,10 @@ export function applyStatIntervention(
       patientFeelingNote =
         'Doctor, ya siento menos presión en la cabeza y me disminuyó el zumbido de oídos sin marearme.';
     } else {
-      effectSeverity = 'reaccion_adversa';
-      summary = `Descenso tensional innecesario en paciente previamente normotenso (${bp.sys}/${bp.dia} → ${sys}/${dia} mmHg).`;
+      effectSeverity = 'parcial';
+      summary = `Descenso tensional leve en paciente normotenso (${bp.sys}/${bp.dia} → ${sys}/${dia} mmHg) sin hipotensión crítica.`;
       patientFeelingNote =
-        'Me siento muy flojo y algo mareado después de esa medicina para la presión, doctor.';
+        'Siento un poco de flojera ligera después de esa medicina, doctor, pero estoy estable.';
     }
   }
   // 3. INSULINA CRISTALINA IV (sensible a UI administradas)
@@ -672,15 +672,17 @@ export function applyStatIntervention(
     const targetSpo2 = isCopd ? 92 : 97;
     const lpm = parsedDose.lpm ?? 6;
     if (spo2 >= targetSpo2) {
-      effectSeverity = isCopd && lpm >= 8 ? 'reaccion_adversa' : 'sin_cambio';
+      effectSeverity = isCopd && lpm >= 12 ? 'reaccion_adversa' : isCopd && lpm >= 8 ? 'parcial' : 'sin_cambio';
       spo2 = clamp(spo2 + (spo2 < 99 ? 1 : 0), 70, 100);
       summary =
-        isCopd && lpm >= 8
-          ? `Flujo alto de O₂ (${lpm} L/min) en paciente con EPOC ya en meta (${spo2}%): riesgo de hipercapnia por pérdida de estímulo hipóxico.`
-          : 'Oxigenación suplementaria aplicada; la saturación ya se encontraba en rango objetivo.';
+        isCopd && lpm >= 12
+          ? `Flujo excesivo de O₂ (${lpm} L/min) en paciente con EPOC ya en meta (${spo2}%): riesgo de narcosis hipercápnica.`
+          : isCopd && lpm >= 8
+            ? `Flujo alto de O₂ (${lpm} L/min) en EPOC ya en meta (${spo2}%): conviene titular a 1-3 L/min para mantener meta 88-92%.`
+            : 'Oxigenación suplementaria aplicada; la saturación ya se encontraba en rango objetivo.';
       patientFeelingNote =
-        isCopd && lpm >= 8
-          ? 'Con tanto oxígeno me siento un poco más somnoliento y aturdido, doctor.'
+        isCopd && lpm >= 12
+          ? 'Con tanto oxígeno me siento muy somnoliento y aturdido, doctor.'
           : isPediatric
             ? 'Mi niño tolera bien la mascarilla de oxígeno, aunque sus molestias principales siguen igual.'
             : 'Siento el aire fresco de la mascarilla, doctor, aunque ya respiraba casi normal.';
@@ -782,17 +784,20 @@ export function applyStatIntervention(
       patientFeelingNote = isPediatric
         ? 'Con el suero en la venita mi niño ya no está tan frío ni decaído, se ve un poco más despejado.'
         : 'Con el suero intravenoso siento menos mareo al mover la cabeza y menos boca seca, doctor.';
-    } else if (ml >= 1500) {
+    } else if (ml >= 2500) {
       spo2 = clamp(spo2 - 3, 75, 100);
       rr = clamp(rr + 3, 12, 42);
       sys = clamp(sys + 10, 70, 210);
       effectSeverity = 'reaccion_adversa';
-      summary = `Carga excesiva de volumen (${ml} mL) en paciente normotenso: riesgo de sobrecarga hídrica y congestión pulmonar.`;
-      patientFeelingNote = 'Me siento un poquito agitado del pecho con tanto líquido que me pasaron rápido, doctor.';
+      summary = `Carga masiva de volumen (${ml} mL) en paciente normotenso: riesgo de sobrecarga hídrica y congestión pulmonar.`;
+      patientFeelingNote = 'Me siento agitado del pecho con tanto líquido que me pasaron rápido, doctor.';
     } else {
-      effectSeverity = 'sin_cambio';
+      effectSeverity = ml >= 1500 ? 'parcial' : 'sin_cambio';
       sys = clamp(sys + 3, 70, 210);
-      summary = `Infusión de ${ml} mL en paciente hemodinámicamente estable.`;
+      summary =
+        ml >= 1500
+          ? `Infusión de ${ml} mL en paciente normotenso: aporte amplio sin beneficio hemodinámico adicional; vigilar balance hídrico.`
+          : `Infusión de ${ml} mL en paciente hemodinámicamente estable.`;
       patientFeelingNote = 'El suero sigue pasando bien en la vena, doctor, me siento estable.';
     }
   }
@@ -818,10 +823,10 @@ export function applyStatIntervention(
       sys = clamp(sys - Math.round(14 * ratio), 68, 220);
       dia = clamp(dia - Math.round(8 * ratio), 40, 130);
       hr = clamp(hr + Math.round(10 * ratio), 55, 170);
-      effectSeverity = sys < 95 ? 'reaccion_adversa' : 'sin_cambio';
+      effectSeverity = sys < 90 ? 'reaccion_adversa' : 'sin_cambio';
       summary = `Diurético (${cleanDose}) aplicado sin sobrecarga hídrica: depleción intravascular y descenso tensional.`;
       patientFeelingNote =
-        sys < 95
+        sys < 90
           ? 'Me dieron muchas ganas de orinar y me siento muy mareado y débil, doctor.'
           : 'Solo me dieron ganas de ir al baño, doctor, pero el problema principal sigue igual.';
     }
@@ -844,10 +849,10 @@ export function applyStatIntervention(
       if (typeof glucose === 'number') {
         glucose = clamp(glucose + Math.round(45 * scale), 40, 680);
       }
-      effectSeverity = typeof glucose === 'number' && glucose >= 250 ? 'reaccion_adversa' : 'sin_cambio';
+      effectSeverity = typeof glucose === 'number' && glucose >= 350 ? 'reaccion_adversa' : 'sin_cambio';
       summary =
         typeof glucose === 'number' && glucose >= 250
-          ? `Aporte de dextrosa (${cleanDose}) agravando hiperglucemia existente.`
+          ? `Aporte de dextrosa (${cleanDose}) sin indicación en paciente hiperglucémico (${glucose} mg/dL).`
           : 'Aporte de dextrosa sin hipoglucemia previa; elevación glucémica sin beneficio clínico.';
       patientFeelingNote = 'Sentí un poco de ardor en la vena con el suero, doctor, pero mis molestias siguen igual.';
     }

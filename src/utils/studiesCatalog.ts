@@ -460,6 +460,16 @@ export const STANDARD_HOSPITAL_STUDIES: ComplementaryStudy[] = [
     isAbnormal: false,
   },
   {
+    id: 'hosp-holter-presion-mapa',
+    category: 'Gabinete y Trazados',
+    subcategory: 'Electrocardiograma',
+    name: 'Holter de Presión Arterial / MAPA de 24 Horas (Monitoreo Ambulatorio de PA)',
+    result: 'Promedio global 24 horas: 118/74 mmHg (FC media 74 lpm). Periodo diurno (07:00–22:00): 122/77 mmHg | Periodo nocturno (22:00–07:00): 106/65 mmHg. Descenso nocturno fisiológico (patrón dipper): 13.1% sistólico y 15.5% diastólico. Carga hipertensiva <15% sin picos hipertensivos ni hipotensión sintomática.',
+    referenceRange: 'Prom. 24h < 130/80 mmHg | Diurno < 135/85 mmHg | Nocturno < 120/70 mmHg | Descenso nocturno dipper: 10–20%',
+    interpretation: 'Perfil ambulatorio de presión arterial normotenso de 24 horas con ritmo circadiano dipper fisiológico conservado.',
+    isAbnormal: false,
+  },
+  {
     id: 'hosp-ecocardiograma',
     category: 'Imagen',
     subcategory: 'Ecografía',
@@ -1153,6 +1163,20 @@ const RELATED_STUDY_OVERRIDES: Record<string, Record<string, Partial<Complementa
       isAbnormal: true,
     },
   },
+  'case-out-cardio-hta': {
+    'hosp-holter-presion-mapa': {
+      result: 'Promedio global 24 horas: 150/92 mmHg (FC media 76 lpm). Periodo diurno (07:00–22:00): 155/95 mmHg | Periodo nocturno (22:00–07:00): 141/86 mmHg. Descenso nocturno atenuado (patrón non-dipper): 9.0% sistólico y 9.5% diastólico. Carga hipertensiva elevada (84% sistólica, 81% diastólica).',
+      interpretation: 'Confirma hipertensión arterial sistémica sostenida de grado 2 (descarta hipertensión de bata blanca) con patrón non-dipper de mayor riesgo cardiovascular.',
+      isAbnormal: true,
+    },
+  },
+  'case-ginecologia-preeclampsia': {
+    'hosp-holter-presion-mapa': {
+      result: 'Promedio global 24 horas: 170/109 mmHg (FC media 96 lpm). Periodo diurno (07:00–22:00): 173/111 mmHg | Periodo nocturno (22:00–07:00): 165/105 mmHg. Ausencia de descenso nocturno (patrón non-dipper: 4.6% sistólico). Carga hipertensiva del 100% (Nota: en preeclampsia severa el manejo es hospitalario urgente, no diferir por estudio ambulatorio).',
+      interpretation: 'Hipertensión arterial severa sostenida con pérdida del ritmo circadiano nocturno característica de trastorno hipertensivo grave del embarazo.',
+      isAbnormal: true,
+    },
+  },
 };
 
 /**
@@ -1583,6 +1607,49 @@ function inferDynamicRelatedStudy(stdStudy: ComplementaryStudy, cCase: ClinicalC
     };
   }
 
+  // Holter de Presión Arterial / MAPA 24h dinámico acorde a cifras tensionales del caso
+  if (stdStudy.id === 'hosp-holter-presion-mapa') {
+    const bpParts = vitals.bloodPressure.match(/(\d{2,3})\s*\/\s*(\d{2,3})/);
+    const sys = bpParts ? parseInt(bpParts[1], 10) : 120;
+    const dia = bpParts ? parseInt(bpParts[2], 10) : 78;
+    const hr = vitals.heartRate || 76;
+
+    if (sys >= 140 || dia >= 90) {
+      const daySys = sys;
+      const dayDia = dia;
+      const isChronicNonDipper = /hipertension|renal|preeclampsia|ictus|evc|diabet/.test(textPool);
+      const dipFactor = isChronicNonDipper ? 0.93 : 0.88;
+      const nightSys = Math.round(daySys * dipFactor);
+      const nightDia = Math.round(dayDia * dipFactor);
+      const mean24Sys = Math.round(daySys * 0.65 + nightSys * 0.35);
+      const mean24Dia = Math.round(dayDia * 0.65 + nightDia * 0.35);
+      const dipPct = (((daySys - nightSys) / daySys) * 100).toFixed(1);
+      return {
+        ...stdStudy,
+        result: `Promedio global 24 horas: ${mean24Sys}/${mean24Dia} mmHg (FC media ${hr} lpm). Periodo diurno (07:00–22:00): ${daySys}/${dayDia} mmHg | Periodo nocturno (22:00–07:00): ${nightSys}/${nightDia} mmHg. Descenso nocturno: ${dipPct}% sistólico (${isChronicNonDipper ? 'patrón non-dipper / atenuado' : 'respuesta hipertensiva sostenida'}). Carga hipertensiva elevada (>75%).`,
+        interpretation: isChronicNonDipper
+          ? 'Perfil MAPA hipertensivo sostenido con descenso nocturno atenuado (non-dipper), acorde a descontrol tensional sistémico o hipertensión reactiva aguda.'
+          : 'Elevación tensional sostenida en el registro de 24 horas concordante con descarga simpática, dolor o estrés agudo.',
+        isAbnormal: true,
+      };
+    }
+
+    if (sys <= 95 || /choque|shock|hipotens|anafilaxia|suprarrenal|addison|hemorrag/.test(textPool)) {
+      const daySys = Math.min(sys, 94);
+      const dayDia = Math.min(dia, 60);
+      const nightSys = Math.max(68, Math.round(daySys * 0.94));
+      const nightDia = Math.max(42, Math.round(dayDia * 0.93));
+      const mean24Sys = Math.round(daySys * 0.65 + nightSys * 0.35);
+      const mean24Dia = Math.round(dayDia * 0.65 + nightDia * 0.35);
+      return {
+        ...stdStudy,
+        result: `Promedio global 24 horas: ${mean24Sys}/${mean24Dia} mmHg (FC media ${hr} lpm). Periodo diurno: ${daySys}/${dayDia} mmHg | Periodo nocturno: ${nightSys}/${nightDia} mmHg. Episodios sostenidos de hipotensión arterial (<90/60 mmHg) con taquicardia compensatoria (Nota: en inestabilidad aguda priorizar reanimación inmediata).`,
+        interpretation: 'Perfil tensional hipotensivo concordante con hipoperfusión / depleción de volumen o choque agudo.',
+        isAbnormal: true,
+      };
+    }
+  }
+
   // Ecocardiograma Transtorácico y NT-proBNP en patología cardíaca, TEP, sepsis grave o disnea
   if (stdStudy.id === 'hosp-ecocardiograma' && (isCardiac || /tromboembol|pericard|taponamiento|endocard|insuficiencia cardiaca|choque|sepsis/.test(textPool))) {
     return {
@@ -1819,14 +1886,39 @@ function isSameStudyCategory(name1: string, name2: string): boolean {
   if (n1.includes('audiometr') || n1.includes('timpanometr')) {
     return n2.includes('audiometr') || n2.includes('timpanometr');
   }
-  if (n1.includes('holter')) {
-    return n2.includes('holter');
+  const isBpHolter1 = n1.includes('mapa') || (n1.includes('holter') && (n1.includes('presión') || n1.includes('presion')));
+  const isBpHolter2 = n2.includes('mapa') || (n2.includes('holter') && (n2.includes('presión') || n2.includes('presion')));
+  if (isBpHolter1 || isBpHolter2) {
+    return isBpHolter1 && isBpHolter2;
+  }
+  if (n1.includes('holter') && !isBpHolter1) {
+    return n2.includes('holter') && !isBpHolter2;
   }
   if (n1.includes('ecocardiograma') || n1.includes('ecott')) {
     return n2.includes('ecocardiograma') || n2.includes('ecott');
   }
-  if (n1.includes('radiografía osteoarticular') || n1.includes('radiografia osteoarticular') || n1.includes('radiografía de cadera') || n1.includes('radiografia de cadera') || n1.includes('radiografía ap') || n1.includes('radiografía de tobillo')) {
-    return n2.includes('radiografía osteoarticular') || n2.includes('radiografia osteoarticular') || n2.includes('radiografía de cadera') || n2.includes('radiografia de cadera') || n2.includes('radiografía ap') || n2.includes('radiografía de tobillo');
+  const isBoneRx1 =
+    n1.includes('radiografía osteoarticular') ||
+    n1.includes('radiografia osteoarticular') ||
+    n1.includes('radiografía de cadera') ||
+    n1.includes('radiografia de cadera') ||
+    n1.includes('radiografía ap') ||
+    n1.includes('radiografia ap') ||
+    n1.includes('radiografía de tobillo') ||
+    n1.includes('radiografia de tobillo') ||
+    (n1.includes('radiografía') && (n1.includes('pierna') || n1.includes('tibia') || n1.includes('lumbar')));
+  const isBoneRx2 =
+    n2.includes('radiografía osteoarticular') ||
+    n2.includes('radiografia osteoarticular') ||
+    n2.includes('radiografía de cadera') ||
+    n2.includes('radiografia de cadera') ||
+    n2.includes('radiografía ap') ||
+    n2.includes('radiografia ap') ||
+    n2.includes('radiografía de tobillo') ||
+    n2.includes('radiografia de tobillo') ||
+    (n2.includes('radiografía') && (n2.includes('pierna') || n2.includes('tibia') || n2.includes('lumbar')));
+  if (isBoneRx1 && isBoneRx2) {
+    return true;
   }
   if (n1.includes('probnp') || n1.includes('pro-bnp') || /\bbnp\b/.test(n1) || n1.includes('péptido natriurético')) {
     return n2.includes('probnp') || n2.includes('pro-bnp') || /\bbnp\b/.test(n2) || n2.includes('péptido natriurético');

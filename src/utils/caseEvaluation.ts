@@ -455,7 +455,9 @@ function checkCriticalSafetyErrors(
   // 8. Emergencias quirúrgicas / vitales manejadas como Ambulatorio
   const expectedHosp = caseData.solution?.optimalTreatment?.hospitalizationDecision || '';
   if (
-    (expectedHosp.includes('UCI') || expectedHosp.includes('Hospitalización')) &&
+    (expectedHosp.includes('UCI') ||
+      expectedHosp.includes('Hospitalización') ||
+      expectedHosp.includes('Quirófano')) &&
     hospDecision.includes('ambulatorio')
   ) {
     errors.push(
@@ -606,8 +608,129 @@ function getDispositionRank(decisionNorm: string): number {
   if (decisionNorm.includes('ambulatorio')) return 1;
   if (decisionNorm.includes('observacion')) return 2;
   if (decisionNorm.includes('hospitalizacion')) return 3;
-  if (decisionNorm.includes('uci') || decisionNorm.includes('intensivos')) return 4;
+  if (decisionNorm.includes('quirofano') || decisionNorm.includes('cirugia')) return 4;
+  if (decisionNorm.includes('uci') || decisionNorm.includes('intensivos')) return 5;
   return 0;
+}
+
+function isSurgicalOrProceduralCase(caseData: ClinicalCase): boolean {
+  const opt = caseData.solution?.optimalTreatment;
+  const expectedHospNorm = normStr(opt?.hospitalizationDecision || '');
+  if (expectedHospNorm.includes('ambulatorio')) {
+    return false;
+  }
+  if (expectedHospNorm.includes('quirofano') || expectedHospNorm.includes('cirugia')) {
+    return true;
+  }
+  if (caseData.specialty === 'cirugia_general') {
+    return true;
+  }
+  const positiveSurgicalText = normStr(
+    [
+      caseData.solution?.correctDiagnosis || '',
+      ...(opt?.generalMeasures || []),
+      ...(opt?.referralCriteria || []),
+    ].join(' ')
+  );
+  return /\b(quirofano|cirugia|quirurgic[ao]|apendicectomia|colecistectomia|salpingectomia|fasciotomia|artroplastia|laparoscopia|laparotomia|adhesiolisis|toracostomia|pericardiocentesis|drenaje|descompresion|reduccion)\b/.test(
+    positiveSurgicalText
+  );
+}
+
+function parseBloodPressurePair(bp?: string): { sys: number; dia: number } {
+  const m = (bp || '').match(/(\d+)\s*\/\s*(\d+)/);
+  return {
+    sys: m ? parseInt(m[1], 10) : 120,
+    dia: m ? parseInt(m[2], 10) : 80,
+  };
+}
+
+function getAbnormalVitalSignDescriptions(caseData: ClinicalCase): string[] {
+  const v = caseData.vitalSigns;
+  if (!v) return [];
+  const age = caseData.patientInfo?.age ?? 30;
+  const { sys, dia } = parseBloodPressurePair(v.bloodPressure);
+  const findings: string[] = [];
+
+  if (age < 2) {
+    if (sys < 70) findings.push(`hipotensión (${v.bloodPressure})`);
+  } else if (age < 12) {
+    if (sys < 80) findings.push(`hipotensión (${v.bloodPressure})`);
+    else if (sys >= 130) findings.push(`hipertensión (${v.bloodPressure})`);
+  } else {
+    if (sys < 90) findings.push(`hipotensión (${v.bloodPressure})`);
+    else if (sys >= 160 || dia >= 100) findings.push(`hipertensión severa (${v.bloodPressure})`);
+    else if (sys >= 140 || dia >= 90) findings.push(`hipertensión (${v.bloodPressure})`);
+  }
+
+  const hrUpper = age < 2 ? 160 : age < 6 ? 140 : age < 12 ? 120 : 100;
+  const hrLower = age < 2 ? 90 : age < 12 ? 70 : 55;
+  if (v.heartRate > hrUpper) findings.push(`taquicardia (${v.heartRate} lpm)`);
+  else if (v.heartRate < hrLower) findings.push(`bradicardia (${v.heartRate} lpm)`);
+
+  const rrUpper = age < 2 ? 45 : age < 6 ? 34 : age < 12 ? 26 : 20;
+  if (v.respiratoryRate > rrUpper) findings.push(`taquipnea (${v.respiratoryRate} rpm)`);
+  else if (v.respiratoryRate < 11) findings.push(`bradipnea (${v.respiratoryRate} rpm)`);
+
+  if (v.temperature >= 38.0) findings.push(`fiebre (${v.temperature} °C)`);
+  else if (v.temperature >= 37.6) findings.push(`febrícula (${v.temperature} °C)`);
+  else if (v.temperature < 35.5) findings.push(`hipotermia (${v.temperature} °C)`);
+
+  if (v.oxygenSaturation < 94) findings.push(`hipoxemia/desaturación (SpO₂ ${v.oxygenSaturation}%)`);
+  if (v.glasgow < 15) findings.push(`alteración neurológica (Glasgow ${v.glasgow}/15)`);
+
+  return findings;
+}
+
+function hasUnstableBaselineVitals(caseData: ClinicalCase): boolean {
+  const v = caseData.vitalSigns;
+  if (!v) return false;
+  const age = caseData.patientInfo?.age ?? 30;
+  const { sys } = parseBloodPressurePair(v.bloodPressure);
+  const lowSys = age < 2 ? sys < 70 : age < 12 ? sys < 80 : sys < 90;
+  const extremeHr = age < 12 ? v.heartRate >= 175 || v.heartRate <= 55 : v.heartRate >= 145 || v.heartRate <= 44;
+  const extremeRr = age < 12 ? v.respiratoryRate >= 52 : v.respiratoryRate >= 32 || v.respiratoryRate <= 9;
+  return lowSys || v.oxygenSaturation < 90 || v.glasgow <= 12 || extremeHr || extremeRr;
+}
+
+function hasImmediateVitalThreat(caseData: ClinicalCase): boolean {
+  const triage = caseData.patientInfo?.triageLevel || '';
+  if (/\bNivel I\b/.test(triage)) return true;
+  if (hasUnstableBaselineVitals(caseData)) return true;
+
+  const expectedHosp = normStr(caseData.solution?.optimalTreatment?.hospitalizationDecision || '');
+  const diagNorm = normStr(caseData.solution?.correctDiagnosis || '');
+  if (
+    expectedHosp.includes('uci') &&
+    /\b(infarto|iamcest|anafilax|choque|meningitis|cetoacidosis|ectopico.*roto|hemorragia digestiva|hiperpotasemia|stevens|serotoninergico|taponamiento|colangitis|crisis suprarrenal|delirium tremens|tormenta tiroidea|organofosforados|asma grave|ictus|guillain|preeclampsia)\b/.test(
+      diagNorm
+    )
+  ) {
+    return true;
+  }
+  if (/\b(ectopico.*roto|choque hipovolemico|choque anafilactico)\b/.test(diagNorm)) {
+    return true;
+  }
+  return false;
+}
+
+function isLethalSafetyError(errMsg: string, caseData: ClinicalCase): boolean {
+  const nErr = normStr(errMsg);
+  // Errores claramente no letales de forma aguda (no causan muerte súbita ni paro en paciente estable)
+  if (
+    /\b(tina|tinea|teratogen|valproico|bronquiectas|antitusigen)\b/.test(nErr)
+  ) {
+    return false;
+  }
+
+  // Egreso ambulatorio es letal solo cuando el paciente sí cursa con amenaza vital aguda o UCI
+  if (nErr.includes('error critico de conducta') && nErr.includes('ambulatorio')) {
+    return hasImmediateVitalThreat(caseData);
+  }
+
+  return /\b(alergi|anafilax|choque anafilactico|hiperpotasemia|fibrilacion ventricular|asistolia|omision de adrenalina|antiagregante|dengue.*(aines|aspirina|hemorragia)|metotrexato|stevens|serotoninergico|depresion respiratoria|paro ventilatorio|wernicke|crisis adrenergica|broncoespasmo severo|hipotension iatrogenica|hipoglucemia iatrogenica|descenso glucemico excesivo|hipermagnesemia|hemorragia digestiva)\b/.test(
+    nErr
+  );
 }
 
 interface TherapeuticEquivalenceGroup {
@@ -1431,7 +1554,14 @@ export function buildDidacticEvaluation(
   const completeRxCount = userRx.filter(
     (r) => (r.drug || '').trim() && (r.dose || '').trim() && (r.route || '').trim() && (r.frequency || '').trim()
   ).length;
-  const hasGeneralMeasures = (submission.generalMeasures || '').trim().length >= 15;
+  const generalTextTrimmed = (submission.generalMeasures || '').trim();
+  const generalTextNorm = normStr(generalTextTrimmed);
+  const hasGeneralMeasures =
+    generalTextTrimmed.length >= 15 ||
+    (generalTextTrimmed.length >= 3 &&
+      /\b(npo|ayun[oa]?|no comer|nada por boca|dieta|hidrat|suero|liquid|oxigen|repos|hielo|eleva|vigil|control|monitor|sonda|canaliz|cirug|quirofano|operar|aislam|lavado|higiene|compres|vendaj|ferula)\b/.test(
+        generalTextNorm
+      ));
 
   const requiredOptRx = optRx.filter((r) => !/\bopcional\b/i.test(`${r.drug} ${r.rationale || ''}`));
   const denominatorRxCount = requiredOptRx.length > 0 ? requiredOptRx.length : optRx.length;
@@ -1476,7 +1606,7 @@ export function buildDidacticEvaluation(
     baseSys >= 180 ||
     baseVitals.oxygenSaturation < 90 ||
     (typeof baseVitals.bloodGlucose === 'number' && baseVitals.bloodGlucose < 65) ||
-    caseData.patientInfo.triageLevel.includes('Nivel I');
+    /\bNivel I\b/.test(caseData.patientInfo.triageLevel || '');
 
   const interventionReviews: StatInterventionAuditItem[] = statList.map((rec) => {
     const deltaSummary =
@@ -1528,6 +1658,12 @@ export function buildDidacticEvaluation(
   const positiveStatEvents = interventionReviews.filter((r) => r.verdict === 'adecuado');
 
   for (const adv of adverseStatEvents) {
+    const commentNorm = normStr(adv.comment);
+    const isSeverePhysiologicStatHarm =
+      /\b(crisis adrenergica|descarga adrenergica|broncoespasmo severo|depresion respiratoria|hipotension iatrogenica|descenso tensional demasiado brusco|hipoglucemia iatrogenica|descenso glucemico excesivo|hipermagnesemia|agravamiento de edema|sobrecarga hidrica|narcosis hipercapnica)\b/.test(
+        commentNorm
+      );
+    if (!isSeverePhysiologicStatHarm) continue;
     const msg = `¡EVENTO ADVERSO EN ESTABILIZACIÓN STAT!: ${adv.drug} (${adv.dose}, ${adv.route}) — ${adv.comment}`;
     if (!criticalSafetyErrors.some((e) => normStr(e).includes(normStr(adv.drug).slice(0, 8)))) {
       criticalSafetyErrors.push(msg);
@@ -1666,22 +1802,21 @@ export function buildDidacticEvaluation(
     treatDetail.missingOrImprove.push('Prescripción farmacológica completa, segura y acorde a normativa.');
   }
 
-  // 7. CONDUCTA, TRIAGE Y SEGURIDAD DEL PACIENTE (0 a 5 pts) — Con crédito parcial en conductas intermedias seguras
+  // 7. CONDUCTA, TRIAGE Y SEGURIDAD DEL PACIENTE (0 a 5 pts) — Criterio estricto de nivel asistencial
   const expectedHosp = solution.optimalTreatment?.hospitalizationDecision || '';
-  const userRank = getDispositionRank(normStr(submission.hospitalizationDecision));
-  const expectedRank = getDispositionRank(normStr(expectedHosp));
+  const userHospNorm = normStr(submission.hospitalizationDecision);
+  const expectedHospNorm = normStr(expectedHosp);
+  const userRank = getDispositionRank(userHospNorm);
+  const expectedRank = getDispositionRank(expectedHospNorm);
+  const userIsSurgery = userHospNorm.includes('quirofano') || userHospNorm.includes('cirugia');
+  const expectedIsSurgery = expectedHospNorm.includes('quirofano') || expectedHospNorm.includes('cirugia');
+  const surgicalCase = isSurgicalOrProceduralCase(caseData);
 
   const hospExactMatch =
-    normStr(submission.hospitalizationDecision) === normStr(expectedHosp) ||
-    (expectedHosp.includes('UCI') && submission.hospitalizationDecision.includes('Hospitalización'));
-
-  const hospAdjacentSafe =
-    !hospExactMatch &&
-    userRank > 0 &&
-    expectedRank > 0 &&
-    ((userRank === 2 && expectedRank === 3) ||
-      (userRank === 3 && expectedRank === 2) ||
-      (userRank === 2 && expectedRank === 1));
+    Boolean(userHospNorm) &&
+    (userHospNorm === expectedHospNorm ||
+      (userIsSurgery && expectedIsSurgery) ||
+      (userIsSurgery && surgicalCase && expectedRank === 3));
 
   const hasReferral = (submission.referralCriteria || '').trim().length >= 10;
   const hasFollowUp = (submission.followUpPlan || '').trim().length >= 10;
@@ -1694,25 +1829,99 @@ export function buildDidacticEvaluation(
     );
   const noMeaningfulWorkDone = !userDiag.trim() && userRx.length === 0 && !hasGeneralMeasures;
 
+  let dispositionPts = 3;
   let referralTriageVerdict: 'correcto' | 'subestimado' | 'sobreestimado' = 'correcto';
-  let referralTriageNote = `Destino clínico acertado ("${expectedHosp}"): equilibrio adecuado entre manejo en primer nivel y referencia oportuna.`;
+  let referralTriageNote = `Destino clínico acertado ("${expectedHosp}"): equilibrio adecuado entre nivel de cuidado y capacidad resolutiva.`;
 
-  if (!hospExactMatch) {
-    if (hospAdjacentSafe && userRank === 2 && expectedRank === 3) {
+  if (hospExactMatch) {
+    dispositionPts = 3;
+    if (userHospNorm !== expectedHospNorm && userIsSurgery) {
+      referralTriageNote = `Destino clínico acertado ("${submission.hospitalizationDecision}"): resolución quirúrgica/intervencionista acorde a la patología ("${expectedHosp}").`;
+    }
+  } else if (userRank === 0) {
+    dispositionPts = 0;
+    referralTriageVerdict = 'subestimado';
+    referralTriageNote = `No definiste un destino clínico acorde al nivel esperado ("${expectedHosp}") (0/3 pts).`;
+  } else if (expectedRank === 5) {
+    // Caso que exige UCI
+    if (userRank === 3) {
+      dispositionPts = 1;
       referralTriageVerdict = 'subestimado';
-      referralTriageNote = `Conducta intermedia aceptable parcialmente: indicaste "${submission.hospitalizationDecision}" con vigilancia, aunque el caso amerita "${expectedHosp}" (2/3 pts).`;
-    } else if (hospAdjacentSafe) {
-      referralTriageVerdict = 'sobreestimado';
-      referralTriageNote = `Conducta preventiva válida parcialmente: indicaste "${submission.hospitalizationDecision}", aunque puede resolverse como "${expectedHosp}" (2/3 pts).`;
-    } else if (userRank > 0 && expectedRank > 0 && userRank < expectedRank) {
-      referralTriageVerdict = 'subestimado';
-      referralTriageNote = `Subestimación de gravedad / referencia tardía: indicaste "${submission.hospitalizationDecision}" cuando la patología exige "${expectedHosp}".`;
-    } else if (userRank > expectedRank && expectedRank > 0) {
-      referralTriageVerdict = 'sobreestimado';
-      referralTriageNote = `Sobre-referencia de recursos: indicaste "${submission.hospitalizationDecision}", aunque este cuadro puede resolverse de forma segura como "${expectedHosp}".`;
+      referralTriageNote = `Subestimación del nivel de cuidado crítico: indicaste "${submission.hospitalizationDecision}", pero la gravedad del paciente exige "${expectedHosp}" para monitorización y soporte continuo (1/3 pts).`;
+    } else if (userRank === 4) {
+      if (surgicalCase) {
+        dispositionPts = 2;
+        referralTriageVerdict = 'subestimado';
+        referralTriageNote = `Conducta intervencionista parcial: indicaste "${submission.hospitalizationDecision}", pero este paciente crítico requiere además manejo en "${expectedHosp}" (2/3 pts).`;
+      } else {
+        dispositionPts = 1;
+        referralTriageVerdict = 'sobreestimado';
+        referralTriageNote = `Destino clínico impreciso: indicaste "${submission.hospitalizationDecision}" en una emergencia médica que corresponde a "${expectedHosp}" (1/3 pts).`;
+      }
     } else {
+      dispositionPts = 0;
       referralTriageVerdict = 'subestimado';
-      referralTriageNote = `No definiste un destino clínico acorde al nivel esperado ("${expectedHosp}").`;
+      referralTriageNote = `Subestimación grave del riesgo vital: indicaste "${submission.hospitalizationDecision}" cuando el paciente requiere ingreso inmediato a "${expectedHosp}" (0/3 pts).`;
+    }
+  } else if (expectedRank === 4) {
+    // Caso que exige Quirófano / Cirugía de Urgencia
+    if (userRank === 3) {
+      dispositionPts = 1;
+      referralTriageVerdict = 'subestimado';
+      referralTriageNote = `Subestimación de prioridad quirúrgica: indicaste "${submission.hospitalizationDecision}", aunque el caso amerita resolución directa en "${expectedHosp}" (1/3 pts).`;
+    } else if (userRank === 5) {
+      dispositionPts = 1;
+      referralTriageVerdict = 'sobreestimado';
+      referralTriageNote = `Indicaste "${submission.hospitalizationDecision}", pero el destino terapéutico prioritario es "${expectedHosp}" (1/3 pts).`;
+    } else {
+      dispositionPts = 0;
+      referralTriageVerdict = 'subestimado';
+      referralTriageNote = `Subestimación grave de urgencia quirúrgica: indicaste "${submission.hospitalizationDecision}" cuando exige "${expectedHosp}" (0/3 pts).`;
+    }
+  } else if (expectedRank === 3) {
+    // Caso que exige Hospitalización en Sala
+    if (userRank === 2) {
+      dispositionPts = 1;
+      referralTriageVerdict = 'subestimado';
+      referralTriageNote = `Subestimación de requerimiento hospitalario: indicaste "${submission.hospitalizationDecision}", pero el cuadro amerita ingreso a "${expectedHosp}" (1/3 pts).`;
+    } else if (userRank === 5) {
+      dispositionPts = 1;
+      referralTriageVerdict = 'sobreestimado';
+      referralTriageNote = `Sobreutilización de terapia intensiva: indicaste "${submission.hospitalizationDecision}" en un paciente sin criterios críticos que corresponde a "${expectedHosp}" (1/3 pts).`;
+    } else if (userRank === 4) {
+      dispositionPts = 0;
+      referralTriageVerdict = 'sobreestimado';
+      referralTriageNote = `Destino inadecuado: indicaste "${submission.hospitalizationDecision}" en una patología médica no quirúrgica que corresponde a "${expectedHosp}" (0/3 pts).`;
+    } else {
+      dispositionPts = 0;
+      referralTriageVerdict = 'subestimado';
+      referralTriageNote = `Subestimación grave de gravedad clínica: indicaste "${submission.hospitalizationDecision}" cuando la patología exige "${expectedHosp}" (0/3 pts).`;
+    }
+  } else if (expectedRank === 2) {
+    // Caso que exige Observación Urgencias
+    if (userRank === 3) {
+      dispositionPts = 1;
+      referralTriageVerdict = 'sobreestimado';
+      referralTriageNote = `Sobreestimación moderada de ingreso: indicaste "${submission.hospitalizationDecision}", aunque este cuadro se maneja inicialmente en "${expectedHosp}" (1/3 pts).`;
+    } else if (userRank === 1) {
+      dispositionPts = 0;
+      referralTriageVerdict = 'subestimado';
+      referralTriageNote = `Egreso prematuro: indicaste "${submission.hospitalizationDecision}" cuando requería vigilancia en "${expectedHosp}" (0/3 pts).`;
+    } else {
+      dispositionPts = 0;
+      referralTriageVerdict = 'sobreestimado';
+      referralTriageNote = `Sobre-referencia de recursos: indicaste "${submission.hospitalizationDecision}" para un cuadro de "${expectedHosp}" (0/3 pts).`;
+    }
+  } else {
+    // Caso Ambulatorio (expectedRank === 1)
+    if (userRank === 2) {
+      dispositionPts = 1;
+      referralTriageVerdict = 'sobreestimado';
+      referralTriageNote = `Sobreestimación de estancia: indicaste "${submission.hospitalizationDecision}", aunque este cuadro estable puede manejarse de forma "${expectedHosp}" (1/3 pts).`;
+    } else {
+      dispositionPts = 0;
+      referralTriageVerdict = 'sobreestimado';
+      referralTriageNote = `Sobre-referencia injustificada de recursos hospitalarios: indicaste "${submission.hospitalizationDecision}" en una patología de manejo "${expectedHosp}" (0/3 pts).`;
     }
   }
 
@@ -1726,7 +1935,6 @@ export function buildDidacticEvaluation(
   if (noMeaningfulWorkDone || criticalSafetyErrors.length > 0) {
     safetyScore = 0;
   } else {
-    const dispositionPts = hospExactMatch ? 3 : hospAdjacentSafe ? 2 : 0;
     safetyScore = dispositionPts + (hasReferral ? 1 : 0) + (hasFollowUp ? 1 : 0);
   }
 
@@ -1735,10 +1943,9 @@ export function buildDidacticEvaluation(
       ? 'Obtuviste 0/5 porque no se registró diagnóstico ni plan terapéutico, dejando al paciente sin conducta médica definida.'
       : criticalSafetyErrors.length > 0
         ? 'Obtuviste 0/5 por cometer un error crítico de seguridad que pone en peligro la vida o integridad del paciente.'
-        : `Nivel de atención propuesto: "${submission.hospitalizationDecision || 'Sin especificar'}" vs esperado "${expectedHosp}" (${safetyScore}/5 pts).`,
+        : `Nivel de atención propuesto: "${submission.hospitalizationDecision || 'Sin especificar'}" vs esperado "${expectedHosp}" (Destino: ${dispositionPts}/3 · Total conducta: ${safetyScore}/5 pts).`,
     strengths: [
       ...(hospExactMatch && !noMeaningfulWorkDone ? [`Decisión correcta de destino clínico (${expectedHosp}).`] : []),
-      ...(hospAdjacentSafe && !noMeaningfulWorkDone ? [`Destino intermedio seguro reconocido parcialmente (${submission.hospitalizationDecision}).`] : []),
       ...(!noMeaningfulWorkDone && criticalSafetyErrors.length === 0
         ? ['Sin errores farmacológicos potencialmente mortales ni iatrogenia grave.']
         : []),
@@ -1807,10 +2014,16 @@ export function buildDidacticEvaluation(
     criticalSafetyErrors,
     feedback: {
       diagnosisAccuracyComment: diagDetail.whyScore,
-      reasoningEvaluation:
-        justifLen >= 25
-          ? `Tu justificación ("${submission.clinicalJustification.slice(0, 220)}") fue contrastada contra la fisiopatología de referencia: ${solution.pathophysiology}`
-          : `No redactaste una justificación clínica amplia. Es fundamental explicar cómo los signos vitales (${caseData.vitalSigns.bloodPressure}, FC ${caseData.vitalSigns.heartRate}, Temp ${caseData.vitalSigns.temperature}°C), los hallazgos físicos y los paraclínicos convergen en "${solution.correctDiagnosis}".`,
+      reasoningEvaluation: (() => {
+        if (justifLen >= 25) {
+          return `Tu justificación ("${submission.clinicalJustification.slice(0, 220)}") fue contrastada contra la fisiopatología de referencia: ${solution.pathophysiology}`;
+        }
+        const abnormalVitals = getAbnormalVitalSignDescriptions(caseData);
+        if (abnormalVitals.length > 0) {
+          return `No redactaste una justificación clínica amplia. Es fundamental explicar cómo los signos vitales alterados (${abnormalVitals.join(', ')}), los hallazgos físicos y los paraclínicos convergen en "${solution.correctDiagnosis}".`;
+        }
+        return `No redactaste una justificación clínica amplia. Aunque sus signos vitales se encuentran estables y dentro de parámetros normales (lo cual descarta compromiso hemodinámico o sistémico agudo), es fundamental explicar cómo los síntomas de la historia clínica, los hallazgos físicos clave y los paraclínicos respaldan "${solution.correctDiagnosis}".`;
+      })(),
       differentialEvaluation: diffDetail.whyScore,
       workupCritique: studyDetail.whyScore,
       treatmentCritique: `${treatDetail.whyScore} ${treatDetail.missingOrImprove.slice(0, 2).join(' ')}`,
@@ -1866,9 +2079,14 @@ export function enrichEvaluationWithDidactics(
   const studiesCount = submission.unlockedStudies?.length || 0;
   const hasDiag = Boolean((submission.primaryDiagnosis || '').trim());
   const hasDiffs = (submission.differentialDiagnoses || []).some((d) => d.trim().length >= 3);
+  const genTrim = (submission.generalMeasures || '').trim();
   const hasTreat =
     (submission.pharmacologicalPlan || []).some((r) => (r.drug || '').trim().length >= 2) ||
-    (submission.generalMeasures || '').trim().length >= 15;
+    genTrim.length >= 15 ||
+    (genTrim.length >= 3 &&
+      /\b(npo|ayun[oa]?|no comer|nada por boca|dieta|hidrat|suero|liquid|oxigen|repos|hielo|eleva|vigil|control|monitor|sonda|canaliz|cirug|quirofano|operar|aislam|lavado|higiene|compres|vendaj|ferula)\b/.test(
+        normStr(genTrim)
+      ));
 
   const capWithBaselineIfStrict = (aiVal: number | undefined, baseVal: number, maxVal: number, isEmpty: boolean) => {
     if (isEmpty) return 0;
@@ -1889,7 +2107,10 @@ export function enrichEvaluationWithDidactics(
         ? 0
         : baseline.criticalSafetyErrors.length > 0
           ? 0
-          : Math.min(5, Math.max(0, Math.round(aiEval.breakdown?.safetyAndConduct ?? baseline.breakdown.safetyAndConduct))),
+          : Math.min(
+              baseline.breakdown.safetyAndConduct,
+              Math.max(0, Math.round(aiEval.breakdown?.safetyAndConduct ?? baseline.breakdown.safetyAndConduct))
+            ),
   };
 
   const sumScore =
@@ -1908,7 +2129,7 @@ export function enrichEvaluationWithDidactics(
   else if (sumScore >= 60) classification = 'Necesita reforzar conocimientos';
   else classification = 'Necesita mejorar su abordaje clínico';
 
-  // Filtra posibles falsos positivos de la IA (ej. culpar meropenem/eritromicina/aztreonam en alergia a penicilina cuando baseline objetivo no detectó error de alergia)
+  // Filtra posibles falsos positivos de la IA (betalactámicos seguros en alergia a penicilina u omisiones menores infladas como error crítico)
   const sanitizedAiCritical = (aiEval.criticalSafetyErrors || []).filter((errMsg) => {
     const nErr = normStr(errMsg);
     const baselineHasAllergyError = baseline.criticalSafetyErrors.some((b) =>
@@ -1919,6 +2140,18 @@ export function enrichEvaluationWithDidactics(
       !baselineHasAllergyError
     ) {
       return false;
+    }
+    if (!hasImmediateVitalThreat(caseData)) {
+      const looksLikeMinorOmission =
+        /\b(omiti|falto|no solicito|no registro|estudio|diferencial|justificacion|seguimiento|dosis|duracion|anamnesis|exploracion)\b/.test(
+          nErr
+        ) &&
+        !/\b(alergi|anafilax|potasio|adrenalina|metotrexato|antiagregante|broncoespasmo|depresion respiratoria|wernicke|hemorragia)\b/.test(
+          nErr
+        );
+      if (looksLikeMinorOmission) {
+        return false;
+      }
     }
     return true;
   });
@@ -1941,7 +2174,14 @@ export function enrichEvaluationWithDidactics(
       primaryDiagnosis: !hasDiag ? baseline.categoryDetails!.primaryDiagnosis : (aiEval.categoryDetails?.primaryDiagnosis?.whyScore ? aiEval.categoryDetails.primaryDiagnosis : baseline.categoryDetails!.primaryDiagnosis),
       differentialDiagnoses: !hasDiffs ? baseline.categoryDetails!.differentialDiagnoses : (aiEval.categoryDetails?.differentialDiagnoses?.whyScore ? aiEval.categoryDetails.differentialDiagnoses : baseline.categoryDetails!.differentialDiagnoses),
       treatment: !hasTreat ? baseline.categoryDetails!.treatment : (aiEval.categoryDetails?.treatment?.whyScore ? aiEval.categoryDetails.treatment : baseline.categoryDetails!.treatment),
-      safetyAndConduct: (!hasDiag && !hasTreat) || mergedCritical.length > 0 ? baseline.categoryDetails!.safetyAndConduct : (aiEval.categoryDetails?.safetyAndConduct?.whyScore ? aiEval.categoryDetails.safetyAndConduct : baseline.categoryDetails!.safetyAndConduct),
+      safetyAndConduct:
+        (!hasDiag && !hasTreat) ||
+        mergedCritical.length > 0 ||
+        baseline.rationalUseAudit?.referralTriageVerdict !== 'correcto'
+          ? baseline.categoryDetails!.safetyAndConduct
+          : aiEval.categoryDetails?.safetyAndConduct?.whyScore
+            ? aiEval.categoryDetails.safetyAndConduct
+            : baseline.categoryDetails!.safetyAndConduct,
     },
     differentialExplanations:
       aiEval.differentialExplanations && aiEval.differentialExplanations.length > 0
@@ -1994,37 +2234,91 @@ export function determineClinicalOutcome(
 ): DramaticOutcome {
   const name = caseData.patientInfo.name;
   const triage = caseData.patientInfo.triageLevel;
-  const isCriticalTriage = triage.includes('Nivel I') || triage.includes('Nivel II') || caseData.mode === 'urgencias';
+  const vitalThreat = hasImmediateVitalThreat(caseData);
+  const unstableBaseline = hasUnstableBaselineVitals(caseData);
+  const expectedHosp = caseData.solution?.optimalTreatment?.hospitalizationDecision || '';
+  const isOutpatientCase = expectedHosp === 'Ambulatorio';
+
   const score = evaluation.totalScore;
-  const hasSafetyError = evaluation.criticalSafetyErrors.length > 0;
+  const allSafetyErrors = evaluation.criticalSafetyErrors || [];
+  const lethalErrors = allSafetyErrors.filter((e) => isLethalSafetyError(e, caseData));
+  const nonLethalErrors = allSafetyErrors.filter((e) => !isLethalSafetyError(e, caseData));
+  const hasLethalError = lethalErrors.length > 0;
+  const hasAnySafetyError = allSafetyErrors.length > 0;
+
   const questionsAsked = evaluation.userSummary?.questionCount ?? 0;
   const examsDone = evaluation.userSummary?.unlockedExamsNames.length ?? 0;
-  const noWorkDone = score <= 15 || (!evaluation.userSummary?.primaryDiagnosis && (evaluation.userSummary?.pharmacologicalPlan.length || 0) === 0);
+  const noWorkDone =
+    score <= 15 ||
+    (!evaluation.userSummary?.primaryDiagnosis && (evaluation.userSummary?.pharmacologicalPlan.length || 0) === 0);
 
-  // 1. Fallecimiento (Código Azul) por error crítico fatal o abandono en urgencia vital
-  if ((hasSafetyError && isCriticalTriage) || (score < 32 && isCriticalTriage) || (noWorkDone && isCriticalTriage)) {
+  const finalVitals = evaluation.userSummary?.finalVitalSigns || caseData.vitalSigns;
+  const realVitalsLine = finalVitals
+    ? `PA: ${finalVitals.bloodPressure.split(' ')[0]} mmHg · FC: ${finalVitals.heartRate} lpm · FR: ${finalVitals.respiratoryRate} rpm · SpO₂: ${finalVitals.oxygenSaturation}%`
+    : 'PA y FC estables · SatO₂ 98% · Sin compromiso vital agudo';
+
+  // 1. Fallecimiento (Código Azul): ÚNICAMENTE ante amenaza vital real + error potencialmente letal o abandono en emergencia crítica
+  if (
+    vitalThreat &&
+    (hasLethalError || noWorkDone || (score < 30 && (/\bNivel I\b/.test(triage) || unstableBaseline)))
+  ) {
     return {
       status: 'deceased',
       badgeLabel: 'CÓDIGO AZUL · SALA DE CHOQUE',
       headline: `Desenlace Fatal: ${name} ha fallecido`,
-      sceneNarrative: hasSafetyError
-        ? `Minutos después de iniciar la conducta prescrita, ${name} presentó colapso hemodinámico súbito refractario e insuficiencia orgánica aguda. A pesar de 30 minutos de maniobras avanzadas de reanimación cardiopulmonar por el equipo de guardia, el monitor mostró asistolia irreversible.`
-        : `Debido a la ausencia o demora crítica en las intervenciones salvadoras requeridas para su estado de emergencia, ${name} evolucionó hacia choque irreversible y parada cardiorrespiratoria en la sala de reanimación.`,
+      sceneNarrative: hasLethalError
+        ? `Minutos después de iniciar la conducta prescrita, ${name} presentó colapso hemodinámico súbito refractario e insuficiencia orgánica aguda debido a su compromiso crítico basal y la contraindicación aplicada. A pesar de 30 minutos de maniobras avanzadas de reanimación, el monitor mostró asistolia irreversible.`
+        : `Debido a la ausencia o demora crítica en las intervenciones salvadoras requeridas para su estado de choque/emergencia vital, ${name} evolucionó hacia parada cardiorrespiratoria irreversible en sala de choque.`,
       vitalMonitorStatus: 'PA: 0/0 mmHg · FC: 0 lpm (Asistolia) · SatO2: --%',
       clinicalPostscript: 'Se declara hora oficial de defunción y el caso pasa a sesión de comité de morbimortalidad hospitalaria.',
     };
   }
 
-  // 2. Complicación Grave / Ingreso de Rescate a UCI
-  if (hasSafetyError || score < 48) {
+  // 2. Complicación Grave / Rescate Hospitalario (proporcional al paciente real)
+  if (hasLethalError || (vitalThreat && score < 48)) {
     return {
       status: 'critical_morbidity',
       badgeLabel: 'ALERTA EN SALA · TRASLADO URGENTE A UCI',
       headline: `${name} sobrevivió con morbilidad grave`,
       sceneNarrative: `Durante las horas posteriores a tu valoración, ${name} sufrió una descompensación aguda severa que obligó al equipo de guardia a intervenir de emergencia y trasladar al paciente a la Unidad de Cuidados Intensivos. Aunque se logró preservar su vida, enfrentará secuelas clínicas prevenibles y estancia prolongada.`,
       patientQuote: 'El familiar aguarda angustiado en sala de espera tras el traslado urgente a terapia intensiva.',
-      vitalMonitorStatus: 'PA: Limítrofe con soporte vasopresor · Monitorización invasiva continua en UCI',
+      vitalMonitorStatus: unstableBaseline
+        ? 'PA: Limítrofe bajo vigilancia estrecha · Monitorización continua en UCI'
+        : `${realVitalsLine} · Monitorización intensiva en UCI`,
       clinicalPostscript: 'El paciente requerirá rehabilitación prolongada y vigilancia estricta de daño orgánico secundario.',
+    };
+  }
+
+  // Error de conducta o manejo en caso agudo NO letal de entrada (ej. apendicitis egresada a casa o puntaje muy bajo en cuadro quirúrgico/hospitalario)
+  if (!isOutpatientCase && (nonLethalErrors.length > 0 || score < 42)) {
+    const dischargedHomeWrongly = nonLethalErrors.some((e) => normStr(e).includes('ambulatorio'));
+    return {
+      status: 'critical_morbidity',
+      badgeLabel: dischargedHomeWrongly
+        ? 'REINGRESO DE URGENCIA · COMPLICACIÓN PREVENIBLE'
+        : 'EVOLUCIÓN COMPLICADA · MANEJO INCOMPLETO',
+      headline: dischargedHomeWrongly
+        ? `${name} reingresó por progresión clínica tras egreso temprano`
+        : `${name} presentó complicación prevenible por manejo incompleto`,
+      sceneNarrative: dischargedHomeWrongly
+        ? `Horas después de recibir manejo ambulatorio, ${name} regresó a Urgencias con progresión de sus síntomas y mayor inflamación/dolor, requiriendo ingreso inmediato y resolución definitiva por el equipo de guardia. No presentó compromiso vital irreversible, pero su recuperación fue más compleja.`
+        : `Aunque ${name} se mantuvo sin riesgo de muerte súbita, las omisiones diagnósticas o terapéuticas retrasaron el control definitivo del cuadro y provocaron una complicación local que prolongó su hospitalización.`,
+      patientQuote: '"Doctor, regresé porque el dolor y las molestias empeoraron bastante en casa después de salir."',
+      vitalMonitorStatus: `${realVitalsLine} · Ingreso hospitalario de rescate`,
+      clinicalPostscript: 'El cuadro fue resuelto por el equipo de guardia sin desenlace fatal, aunque con morbilidad prevenible.',
+    };
+  }
+
+  // Error terapéutico no letal en caso ambulatorio/estable (ej. corticoide tópico en tiña, antitusígeno en bronquiectasias, valproato)
+  if (isOutpatientCase && hasAnySafetyError) {
+    return {
+      status: 'stabilized_morbidity',
+      badgeLabel: 'ALERTA TERAPÉUTICA · RECONSULTA AMBULATORIA',
+      headline: `${name} permanece estable, pero presentó efecto adverso o empeoramiento prevenible`,
+      sceneNarrative: `Los signos vitales de ${name} se mantuvieron completamente estables y sin riesgo vital; sin embargo, la indicación terapéutica contraindicada en este cuadro clínico generó empeoramiento sintomático o riesgo farmacológico prevenible, motivando una reconsulta para corregir la prescripción.`,
+      patientQuote: '"Me siento estable, doctor, pero la molestia no mejoró con lo que me recetaron y tuve que volver a revisión."',
+      vitalMonitorStatus: realVitalsLine,
+      clinicalPostscript: 'Sin compromiso vital ni ingreso hospitalario: requiere ajuste farmacológico dirigido y educación terapéutica.',
     };
   }
 
@@ -2036,35 +2330,32 @@ export function determineClinicalOutcome(
       headline: `${name} se retira molesto y solicita segunda opinión`,
       sceneNarrative: `Al finalizar la consulta, ${name} percibió un interrogatorio demasiado breve o falta de exploración física exhaustiva antes de recibir indicaciones. Visiblemente frustrado e inseguro sobre su diagnóstico real, solicitó su expediente para acudir con otro especialista.`,
       patientQuote: '"Doctor, siento que casi no me escuchó ni me revisó lo suficiente... así no me voy tranquilo a mi casa."',
-      vitalMonitorStatus: 'Paciente consciente y molesto · Síntomas aún sin resolución clara',
+      vitalMonitorStatus: `${realVitalsLine} · Paciente consciente e inconforme`,
       clinicalPostscript: 'La relación médico-paciente y la minuciosidad semiológica determinan tanto la adherencia como la seguridad diagnóstica.',
     };
   }
 
-  // 4. Estabilizado con Secuela Leve / Recuperación Tórpida (Puntaje intermedio 48–77)
+  // 4. Estabilizado con Secuela Leve / Recuperación Tórpida (Puntaje intermedio 42–77)
   if (score < 78) {
     return {
       status: 'stabilized_morbidity',
       badgeLabel: 'EVOLUCIÓN PARCIAL · RECUPERACIÓN PROLONGADA',
-      headline: `${name} fue estabilizado, pero presenta evolución lenta`,
-      sceneNarrative: `Tras recibir atención hospitalaria, ${name} logró superar el peligro inmediato; sin embargo, algunas omisiones en los estudios clave o ajustes en el esquema terapéutico retrasaron su mejoría completa y generaron molestias residuales que requerirán seguimiento estrecho.`,
-      patientQuote: '"Me siento un poco mejor que cuando llegué, doctor, aunque todavía sigo con algunas molestias y tendré que quedarme unos días más."',
-      vitalMonitorStatus: 'Signos vitales en estabilización progresiva bajo observación',
-      clinicalPostscript: 'El paciente evoluciona favorablemente tras ajustes terapéuticos de guardia, pero con mayor estancia de la esperada.',
+      headline: `${name} evolucionó estable, pero con mejoría más lenta de lo esperado`,
+      sceneNarrative: `Tras tu valoración, ${name} permaneció sin complicaciones graves; sin embargo, algunas omisiones en los estudios clave o ajustes en el esquema terapéutico retrasaron su alivio completo y requirieron seguimiento estrecho para completar el manejo.`,
+      patientQuote: '"Me siento un poco mejor que cuando llegué, doctor, aunque todavía sigo con algunas molestias y tendré que volver a control."',
+      vitalMonitorStatus: realVitalsLine,
+      clinicalPostscript: 'El paciente evoluciona favorablemente tras ajustes terapéuticos, sin peligro vital.',
     };
   }
-
-  const finalVitals = evaluation.userSummary?.finalVitalSigns;
-  const realVitalsLine = finalVitals
-    ? `PA: ${finalVitals.bloodPressure.split(' ')[0]} mmHg · FC: ${finalVitals.heartRate} lpm · FR: ${finalVitals.respiratoryRate} rpm · SpO₂: ${finalVitals.oxygenSaturation}%`
-    : 'PA y FC estabilizadas · SatO2 98% · Sin signos de alarma activos';
 
   // 5. Salvado Satisfactoriamente (Puntaje >= 78 y sin errores críticos)
   return {
     status: 'saved',
     badgeLabel: 'EVOLUCIÓN FAVORABLE · PACIENTE ESTABILIZADO',
-    headline: `¡${name} ha sido salvado satisfactoriamente!`,
-    sceneNarrative: `Gracias a tu diagnóstico oportuno, criterio clínico preciso y esquema terapéutico acertado, ${name} respondió de manera excelente al manejo instaurado. Los parámetros hemodinámicos y respiratorios evolucionaron favorablemente sin complicaciones ni secuelas.`,
+    headline: isOutpatientCase
+      ? `¡${name} recibió un manejo ambulatorio excelente!`
+      : `¡${name} ha sido salvado satisfactoriamente!`,
+    sceneNarrative: `Gracias a tu diagnóstico oportuno, criterio clínico preciso y esquema terapéutico acertado, ${name} respondió de manera excelente al manejo instaurado. Los parámetros clínicos evolucionaron favorablemente sin complicaciones ni secuelas.`,
     patientQuote: '"¡Muchísimas gracias, doctor! De verdad sentí que estaba en buenas manos desde el primer momento; ya me siento muchísimo mejor."',
     vitalMonitorStatus: realVitalsLine,
     clinicalPostscript: 'Desenlace clínico exitoso y seguro conforme a los estándares médicos internacionales.',

@@ -122,11 +122,28 @@ export const STANDARD_PHYSICAL_EXAMS: PhysicalExamFinding[] = [
   },
 ];
 
+function normPe(text: string): string {
+  return (text || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function parseBp(bp?: string): { sys: number; dia: number } {
+  const m = (bp || '').match(/(\d+)\s*\/\s*(\d+)/);
+  return {
+    sys: m ? parseInt(m[1], 10) : 120,
+    dia: m ? parseInt(m[2], 10) : 80,
+  };
+}
+
 /**
  * Limpia títulos de maniobras específicas del caso para eliminar palabras que delaten el diagnóstico.
  */
 function sanitizePhysicalExamTitle(name: string): string {
-  const lower = name.toLowerCase();
+  const lower = normPe(name);
 
   if (lower.includes('torniquete') || lower.includes('rumpel')) {
     return 'Prueba del torniquete (fragilidad capilar) e inspección de petequias';
@@ -137,7 +154,7 @@ function sanitizePhysicalExamTitle(name: string): string {
   if (lower.includes('levine')) {
     return 'Inspección general, facies y actitud del paciente';
   }
-  if (lower.includes('pseudoperitonitis') || lower.includes('diabética') || lower.includes('diabetica')) {
+  if (lower.includes('pseudoperitonitis') || lower.includes('diabetica')) {
     return 'Palpación abdominal superficial y profunda';
   }
   if (lower.includes('hunter') || lower.includes('clonus')) {
@@ -158,7 +175,7 @@ function sanitizePhysicalExamTitle(name: string): string {
   if (lower.includes('psoas') || lower.includes('obturador') || lower.includes('mcburney')) {
     return 'Maniobras de irritación peritoneal, Psoas, Obturador y McBurney';
   }
-  if (lower.includes('meníngeo') || lower.includes('meningeo') || lower.includes('kernig')) {
+  if (lower.includes('meningeo') || lower.includes('kernig')) {
     return 'Signos meníngeos (Rigidez de nuca, Kernig y Brudzinski)';
   }
 
@@ -166,78 +183,128 @@ function sanitizePhysicalExamTitle(name: string): string {
 }
 
 /**
- * Determina si dos maniobras representan la misma categoría semiológica para evitar duplicados.
+ * Determina si una maniobra nativa del caso ya cubre el dominio semiológico de un examen estándar
+ * para evitar tarjetas duplicadas o hallazgos normales contradictorios.
  */
-function isSameExamCategory(name1: string, name2: string): boolean {
-  const n1 = name1.toLowerCase();
-  const n2 = name2.toLowerCase();
+function isStdExamCoveredByNative(
+  stdExam: PhysicalExamFinding,
+  nativeExams: PhysicalExamFinding[]
+): boolean {
+  const combinedText = (pe: PhysicalExamFinding) => `${normPe(pe.name)} ${normPe(pe.finding)}`;
 
-  if (n1.includes('torniquete') || n1.includes('rumpel') || n1.includes('petequia')) {
-    return n2.includes('torniquete') || n2.includes('rumpel') || n2.includes('petequia');
-  }
-  if (n1.includes('meníngeo') || n1.includes('meninge') || n1.includes('kernig') || n1.includes('brudzinski')) {
-    return n2.includes('meníngeo') || n2.includes('meninge') || n2.includes('kernig') || n2.includes('brudzinski');
-  }
-  if (n1.includes('psoas') || n1.includes('obturador') || n1.includes('mcburney') || n1.includes('peritoneal')) {
-    return n2.includes('psoas') || n2.includes('obturador') || n2.includes('mcburney') || n2.includes('peritoneal');
-  }
-  if (n1.includes('murphy') || n1.includes('hepato') || n1.includes('hepatomegalia')) {
-    return n2.includes('murphy') || n2.includes('hepato') || n2.includes('hepatomegalia');
-  }
-  if (n1.includes('nikolsky') || (n1.includes('cutánea') && n1.includes('integral')) || n1.includes('piel y perfusión')) {
-    return n2.includes('nikolsky') || (n2.includes('cutánea') && n2.includes('integral'));
-  }
-  if (n1.includes('homans') || n1.includes('miembros inferiores') || n1.includes('compartiment')) {
-    return n2.includes('homans') || n2.includes('miembros inferiores') || n2.includes('compartiment');
-  }
-  if (n1.includes('clonus') || n1.includes('reflejos')) {
-    return n2.includes('clonus') || n2.includes('reflejos');
-  }
-  if (
-    n1.includes('inspección general') ||
-    n1.includes('inspeccion general') ||
-    n1.includes('aspecto general') ||
-    n1.includes('estado general') ||
-    n1.includes('estado hídrico') ||
-    n1.includes('estado hidrico') ||
-    n1.includes('estado de hidratación') ||
-    n1.includes('estado de hidratacion') ||
-    n1.includes('esfera cognitiva') ||
-    n1.includes('estado de alerta') ||
-    n1.includes('actitud motora') ||
-    n1.includes('signos autonómicos') ||
-    n1.includes('signos autonomicos') ||
-    n1.includes('triángulo')
-  ) {
-    return n2.includes('inspección general');
-  }
-  if ((n1.includes('auscultación') || n1.includes('mecánica')) && (n1.includes('pulmon') || n1.includes('ventilator') || n1.includes('respirator'))) {
-    return n2.includes('auscultación pulmonar');
-  }
-  if (n1.includes('cardíaca') || n1.includes('cardiaca') || (n1.includes('pulsos') && n1.includes('perfusión'))) {
-    return n2.includes('auscultación cardíaca');
-  }
-  if ((n1.includes('palpación') && n1.includes('abdomen')) || (n1.includes('palpación abdominal') && !n1.includes('murphy') && !n1.includes('hepato'))) {
-    return n2.includes('palpación abdominal superficial/profunda');
-  }
-  if (n1.includes('ocular') || n1.includes('orl') || n1.includes('vía aérea') || n1.includes('via aerea')) {
-    return n2.includes('exploración ocular');
-  }
-  if (n1.includes('yugular') || n1.includes('carotídeo')) {
-    return n2.includes('ingurgitación yugular');
-  }
-  if (
-    n1.includes('pares craneales') ||
-    n1.includes('conciencia') ||
-    n1.includes('estado mental') ||
-    n1.includes('neuromuscular') ||
-    n1.includes('radicular') ||
-    (n1.includes('neurológica') && !n1.includes('meninge'))
-  ) {
-    return n2.includes('estado de conciencia');
-  }
+  switch (stdExam.id) {
+    case 'std-pe-general':
+      return nativeExams.some(
+        (pe) =>
+          pe.system === 'General' ||
+          /\b(?:inspeccion general|aspecto general|estado general|hidratacion|estado hidrico|triangulo|actitud|facies)\b/.test(
+            normPe(pe.name)
+          )
+      );
 
-  return false;
+    case 'std-pe-head-eyes':
+      return nativeExams.some((pe) =>
+        /\b(?:ocular[a-z]*|ojos|pupila[a-z]*|conjuntiv[a-z]*|esclera[a-z]*|fondo de ojo|orl|orofaring[a-z]*|faring[a-z]*|amigdal[a-z]*|rinoscop[a-z]*|otoscop[a-z]*|oido[a-z]*|cavidad oral|lengua|via aerea|laring[a-z]*|senos paranasales|mucosas oral[a-z]*|facial)\b/.test(
+          normPe(pe.name)
+        )
+      );
+
+    case 'std-pe-neck-thyroid':
+      return nativeExams.some((pe) =>
+        /\b(?:cuello|cervical[a-z]*|yugular[a-z]*|carotid[a-z]*|tiroid[a-z]*|gangli[a-z]*|adenopatia[a-z]*|traquea|palpacion cervical)\b/.test(
+          normPe(pe.name)
+        )
+      );
+
+    case 'std-pe-thorax':
+      return nativeExams.some(
+        (pe) =>
+          pe.system === 'Tórax y Pulmones' ||
+          /\b(?:torax|toracic[a-z]*|pulmon[a-z]*|cardiopulmonar[a-z]*|respiratori[a-z]*|ventilatori[a-z]*|murmullo|patron respiratorio)\b/.test(
+            normPe(pe.name)
+          )
+      );
+
+    case 'std-pe-cardio':
+      return nativeExams.some(
+        (pe) =>
+          pe.system === 'Cardiovascular' ||
+          /\b(?:cardiac[a-z]*|cardiovasc[a-z]*|cardiopulmonar[a-z]*|precord[a-z]*|ruidos|beck|hemodinamic[a-z]*|pulsos distales|llenado capilar)\b/.test(
+            normPe(pe.name)
+          )
+      );
+
+    case 'std-pe-abd-general':
+      return nativeExams.some((pe) => {
+        if (pe.system === 'Abdomen') return true;
+        return /\b(?:abdom[a-z]*|epigastri[a-z]*|peritoneal[a-z]*|fosa iliaca|cuadrante|hipocondri[a-z]*|inguinal[a-z]*|suprapubic[a-z]*|punopercusion|tacto rectal)\b/.test(
+          normPe(pe.name)
+        );
+      });
+
+    case 'std-pe-abd-murphy-liver':
+      return nativeExams.some((pe) =>
+        /\b(?:murphy|hepat[a-z]*|higado|bazo|esplen[a-z]*|cuadrante superior derecho|hipocondrio derecho|costal derech[a-z]*)\b/.test(
+          combinedText(pe)
+        )
+      );
+
+    case 'std-pe-abd-appendicular':
+      return nativeExams.some((pe) =>
+        /\b(?:psoas|obturador|mcburney|rovsing|blumberg|peritoneal[a-z]*|rebote|defensa muscular|abdomen en tabla)\b/.test(
+          combinedText(pe)
+        )
+      );
+
+    case 'std-pe-neuro-core':
+      return nativeExams.some((pe) =>
+        /\b(?:conciencia|glasgow|pares craneales|fuerza|motor[a-z]*|motricidad|estado mental|esfera|dix hallpike|cerebel[a-z]*|radicular[a-z]*|phalen|tinel|marcha|sensitivo motora|neurologic[a-z]*)\b/.test(
+          normPe(pe.name)
+        )
+      );
+
+    case 'std-pe-neuro-meningeal':
+      return nativeExams.some((pe) =>
+        /\b(?:meninge[a-z]*|rigidez de nuca|kernig|brudzinski)\b/.test(combinedText(pe))
+      );
+
+    case 'std-pe-neuro-reflexes':
+      return nativeExams.some((pe) => {
+        const txt = combinedText(pe);
+        return (
+          /\b(?:reflejo[a-z]*|clonus|hunter|sensibilidad|sensitiv[a-z]*|vibratoria|osteotendinos[a-z]*|tono muscular|radicular[a-z]*|phalen|tinel|marcha|neurologica completa|babinski|parestesia[a-z]*|hipoestesia|arreflexia|hiperreflexia|temblor)\b/.test(
+            txt
+          ) ||
+          (pe.system === 'Neurológico' &&
+            pe.isAbnormal &&
+            /\b(?:fuerza|paresia|debilidad|neuropatia)\b/.test(txt))
+        );
+      });
+
+    case 'std-pe-skin-tourniquet':
+      return nativeExams.some((pe) =>
+        /\b(?:torniquete|rumpel|petequia[a-z]*|purpura|equimosis|cutanea completa|piel y perfusion|piel, faneras)\b/.test(
+          combinedText(pe)
+        )
+      );
+
+    case 'std-pe-skin-nikolsky':
+      return nativeExams.some((pe) =>
+        /\b(?:nikolsky|piel|cutane[a-z]*|dermatolog[a-z]*|exantema[a-z]*|lesion[a-z]*|herpes|tina|tinea|urticaria|habon[a-z]*|celulitis|erisipela|vulvovaginal|cicatrices|pliegues|ampolla[a-z]*|vesicula[a-z]*|eritema[a-z]*|hiperandrogenismo|acne)\b/.test(
+          combinedText(pe)
+        )
+      );
+
+    case 'std-pe-limbs-vascular':
+      return nativeExams.some((pe) =>
+        /\b(?:extremidad[a-z]*|miembro[a-z]*|pierna[a-z]*|tobillo[a-z]*|rodilla[a-z]*|cadera|pie|pies|mano|manos|compartiment[a-z]*|homans|edema|articular[a-z]*|musculoesquelet[a-z]*|lumbar|lasegue|fuerza muscular proximal|tibia|femur)\b/.test(
+          combinedText(pe)
+        )
+      );
+
+    default:
+      return false;
+  }
 }
 
 function getGlasgowBreakdown(glasgow: number): string {
@@ -255,7 +322,6 @@ function resolveAuthoritativeGlasgow(cCase: ClinicalCase): number {
   const rawGcs = Number(cCase.vitalSigns?.glasgow);
   let gcs = Number.isFinite(rawGcs) ? Math.min(15, Math.max(3, Math.round(rawGcs))) : 15;
 
-  // Si el monitor marca 15 pero un hallazgo específico del caso documenta explícitamente un Glasgow menor, sincronizar ambos
   const explicitMatches = (cCase.physicalExamPool || [])
     .flatMap((pe) => [...pe.finding.matchAll(/glasgow\s*(?:de\s*)?(\d{1,2})/gi)])
     .map((m) => Number(m[1]))
@@ -266,7 +332,6 @@ function resolveAuthoritativeGlasgow(cCase: ClinicalCase): number {
     if (minExplicit < 15) gcs = minExplicit;
   }
 
-  // Si el monitor marca 15 pero la historia o exploración describen obnubilación/estupor/somnolencia severa/desorientación franca
   if (gcs === 15) {
     const combinedText = [
       cCase.patientInfo?.currentIllness || '',
@@ -274,7 +339,11 @@ function resolveAuthoritativeGlasgow(cCase: ClinicalCase): number {
     ].join(' ');
     if (/\b(?:estupor(?:os[oa])?|estado de coma|comatos[oa]|inconsciente)\b/i.test(combinedText)) {
       gcs = 9;
-    } else if (/\b(?:letarg[oa]|letargia|somnolencia progresiva|desorientad[oa] en tiempo y espacio|obnubilad[oa])\b/i.test(combinedText)) {
+    } else if (
+      /\b(?:letarg[oa]|letargia|somnolencia progresiva|desorientad[oa] en tiempo y espacio|obnubilad[oa])\b/i.test(
+        combinedText
+      )
+    ) {
       gcs = 13;
     }
   }
@@ -282,55 +351,95 @@ function resolveAuthoritativeGlasgow(cCase: ClinicalCase): number {
   return gcs;
 }
 
-function buildContextualGeneralExam(cCase: ClinicalCase, glasgow: number): PhysicalExamFinding {
-  const bpSys = parseInt((cCase.vitalSigns?.bloodPressure || '120/80').split('/')[0], 10);
+function buildContextualGeneralExam(
+  cCase: ClinicalCase,
+  glasgow: number,
+  nativeTextNorm: string
+): PhysicalExamFinding {
+  const age = cCase.patientInfo?.age ?? 30;
+  const { sys } = parseBp(cCase.vitalSigns?.bloodPressure);
+  const hr = cCase.vitalSigns?.heartRate ?? 80;
+  const spo2 = cCase.vitalSigns?.oxygenSaturation ?? 98;
+  const temp = cCase.vitalSigns?.temperature ?? 36.8;
+  const illnessNorm = normPe(cCase.patientInfo?.currentIllness || '');
+  const contextNorm = `${illnessNorm} ${nativeTextNorm}`;
+
   const likelyDehydrated =
-    bpSys < 95 ||
-    (cCase.vitalSigns?.heartRate || 80) >= 115 ||
-    /v[oó]mit|diarrea|deshidrat|sed intensa|cetoacidosis/i.test(cCase.patientInfo?.currentIllness || '');
+    sys < 95 ||
+    hr >= 115 ||
+    /\b(vomit|diarrea|deshidrat|sed intensa|cetoacidosis|poliuria)\b/.test(contextNorm);
+  const hasPallorOrBleed = /\b(palid|anemia|hemorrag|melena|hematemesis|ectopico|hipovolem)\b/.test(contextNorm);
+  const hasJaundice = /\b(icteri|colangitis|bilirrubin|escleras amarillas)\b/.test(contextNorm);
+  const hasCyanosis = spo2 < 90 || /\bcianos/.test(contextNorm);
+  const hasFeverOrDiaphoresis = temp >= 38.0 || /\bdiafores/.test(contextNorm);
 
-  const hydrationText = likelyDehydrated
-    ? 'Mucosas orales con hidratación limítrofe, a correlacionar con el resto de la exploración y signos vitales.'
-    : 'Mucosas orales hidratadas, turgencia cutánea conservada, sin palidez marcada ni cianosis.';
+  const hydrationClause = likelyDehydrated
+    ? 'Mucosas orales discretamente secas o con hidratación limítrofe, a correlacionar con signos vitales.'
+    : 'Mucosas orales hidratadas y turgencia cutánea conservada.';
 
-  if (glasgow >= 15) {
-    return {
-      ...STANDARD_PHYSICAL_EXAMS[0],
-      id: `std-pe-general-${cCase.id}`,
-      finding: `Paciente consciente y orientado en las tres esferas (Glasgow 15/15). ${hydrationText}`,
-      isAbnormal: false,
-    };
+  const skinColorClauses: string[] = [];
+  if (hasPallorOrBleed) skinColorClauses.push('palidez tegumentaria concordante con el cuadro clínico');
+  if (hasJaundice) skinColorClauses.push('tinte ictérico en escleras/tegumentos');
+  if (hasCyanosis) skinColorClauses.push(`datos de hipoxemia periférica (SpO₂ ${spo2}%)`);
+  if (hasFeverOrDiaphoresis) skinColorClauses.push('fascies álgica/febril o diaforesis acorde al estado agudo');
+
+  const colorText =
+    skinColorClauses.length > 0
+      ? `Se aprecia ${skinColorClauses.join(', ')}.`
+      : 'Sin palidez marcada, ictericia ni cianosis.';
+
+  let neuroOpening = '';
+  if (age < 3) {
+    neuroOpening =
+      glasgow >= 15
+        ? 'Paciente pediátrico reactivo al entorno, con llanto consolable e interacción acorde a la edad (Glasgow pediátrico 15/15).'
+        : `Paciente pediátrico con irritabilidad, letargo o menor respuesta al medio (Glasgow pediátrico ${glasgow}/15).`;
+  } else if (glasgow >= 15) {
+    neuroOpening = 'Paciente consciente y orientado en las tres esferas (Glasgow 15/15).';
+  } else if (glasgow === 14) {
+    neuroOpening = 'Paciente vigil pero con discreta somnolencia o confusión leve (Glasgow 14/15).';
+  } else if (glasgow >= 12) {
+    neuroOpening = `Paciente con deterioro moderado del estado de alerta, somnoliento o confuso (Glasgow ${glasgow}/15).`;
+  } else {
+    neuroOpening = `Paciente con compromiso importante del estado de conciencia y escasa respuesta al medio (Glasgow ${glasgow}/15).`;
   }
 
-  if (glasgow === 14) {
-    return {
-      ...STANDARD_PHYSICAL_EXAMS[0],
-      id: `std-pe-general-${cCase.id}`,
-      finding: `Paciente vigil pero con discreta somnolencia o confusión leve (Glasgow 14/15). ${hydrationText}`,
-      isAbnormal: true,
-    };
-  }
-
-  if (glasgow >= 12) {
-    return {
-      ...STANDARD_PHYSICAL_EXAMS[0],
-      id: `std-pe-general-${cCase.id}`,
-      finding: `Paciente con deterioro moderado del estado de alerta, somnoliento o confuso (Glasgow ${glasgow}/15). ${hydrationText}`,
-      isAbnormal: true,
-    };
-  }
+  const isAbnormal =
+    glasgow < 15 || likelyDehydrated || hasPallorOrBleed || hasJaundice || hasCyanosis || temp >= 38.0;
 
   return {
     ...STANDARD_PHYSICAL_EXAMS[0],
     id: `std-pe-general-${cCase.id}`,
-    finding: `Paciente con compromiso importante del estado de conciencia y escasa respuesta al medio (Glasgow ${glasgow}/15). ${hydrationText}`,
-    isAbnormal: true,
+    finding: `${neuroOpening} ${hydrationClause} ${colorText}`,
+    isAbnormal,
   };
 }
 
-function buildContextualNeuroCoreExam(cCase: ClinicalCase, glasgow: number): PhysicalExamFinding {
+function buildContextualNeuroCoreExam(
+  cCase: ClinicalCase,
+  glasgow: number,
+  nativeExams: PhysicalExamFinding[]
+): PhysicalExamFinding {
+  const age = cCase.patientInfo?.age ?? 30;
   const breakdown = getGlasgowBreakdown(glasgow);
-  if (glasgow >= 15) {
+  const nativeText = normPe(nativeExams.map((e) => `${e.name} ${e.finding}`).join(' '));
+  const hasMotorOrCranialCue = /\b(hemiparesia|paresia|paralisis|debilidad|disartria|afasia|ptosis|facial|nistagmo)\b/.test(
+    nativeText
+  );
+
+  if (age < 3) {
+    return {
+      ...STANDARD_PHYSICAL_EXAMS.find((e) => e.id === 'std-pe-neuro-core')!,
+      id: `std-pe-neuro-core-${cCase.id}`,
+      finding:
+        glasgow >= 15
+          ? `Glasgow pediátrico 15/15 (${breakdown}). Tono muscular y motilidad espontánea simétrica en las cuatro extremidades; reflejo de succión/prensión acorde a la edad.`
+          : `Glasgow pediátrico ${glasgow}/15 (${breakdown}). Disminución de reactividad al estímulo; requiere vigilancia neurológica estrecha.`,
+      isAbnormal: glasgow < 15,
+    };
+  }
+
+  if (glasgow >= 15 && !hasMotorOrCranialCue) {
     return {
       ...STANDARD_PHYSICAL_EXAMS.find((e) => e.id === 'std-pe-neuro-core')!,
       id: `std-pe-neuro-core-${cCase.id}`,
@@ -342,8 +451,87 @@ function buildContextualNeuroCoreExam(cCase: ClinicalCase, glasgow: number): Phy
   return {
     ...STANDARD_PHYSICAL_EXAMS.find((e) => e.id === 'std-pe-neuro-core')!,
     id: `std-pe-neuro-core-${cCase.id}`,
-    finding: `Glasgow ${glasgow}/15 (${breakdown}). Pares craneales evaluados sin lesión periférica evidente en este apartado; continuar vigilancia neurológica estrecha.`,
-    isAbnormal: true,
+    finding: `Glasgow ${glasgow}/15 (${breakdown}). Evaluación neurológica básica acorde al estado clínico del paciente; correlacionar con maniobras neurológicas dirigidas.`,
+    isAbnormal: glasgow < 15 || hasMotorOrCranialCue,
+  };
+}
+
+function buildContextualStdExam(
+  stdExam: PhysicalExamFinding,
+  cCase: ClinicalCase,
+  nativeTextNorm: string
+): PhysicalExamFinding {
+  const age = cCase.patientInfo?.age ?? 30;
+  const v = cCase.vitalSigns;
+  const bpRaw = (v?.bloodPressure || '120/80 mmHg').split(' ')[0];
+  const { sys, dia } = parseBp(v?.bloodPressure);
+  const hr = v?.heartRate ?? 80;
+  const rr = v?.respiratoryRate ?? 16;
+  const spo2 = v?.oxygenSaturation ?? 98;
+
+  const hrUpper = age < 2 ? 160 : age < 6 ? 140 : age < 12 ? 120 : 105;
+  const hrLower = age < 2 ? 90 : age < 12 ? 70 : 52;
+  const rrUpper = age < 2 ? 48 : age < 6 ? 34 : age < 12 ? 26 : 22;
+  const sysLow = age < 2 ? 70 : age < 12 ? 80 : 90;
+
+  if (stdExam.id === 'std-pe-cardio') {
+    const isHypotensive = sys < sysLow;
+    const isSevereHtn = age >= 12 && (sys >= 160 || dia >= 100);
+    const isTachy = hr > hrUpper;
+    const isBrady = hr < hrLower;
+
+    if (isHypotensive || isTachy || isBrady || isSevereHtn) {
+      const ratePart = isTachy
+        ? `Ruidos cardíacos rítmicos y taquicárdicos (${hr} lpm)`
+        : isBrady
+          ? `Ruidos cardíacos rítmicos y bradicárdicos (${hr} lpm)`
+          : `Ruidos cardíacos rítmicos (${hr} lpm)`;
+      const bpPart = isHypotensive
+        ? `con hipotensión arterial (${bpRaw} mmHg), pulsos periféricos débiles y llenado capilar limítrofe/enlentecido (> 2 s)`
+        : isSevereHtn
+          ? `con refuerzo del segundo ruido acorde a cifras tensionales elevadas (${bpRaw} mmHg), pulsos presentes y llenado capilar < 2 s`
+          : 'sin soplos ni tercer ruido (R3); pulsos periféricos presentes y llenado capilar < 2 segundos';
+      return {
+        ...stdExam,
+        id: `${stdExam.id}-${cCase.id}`,
+        finding: `${ratePart}, ${bpPart}.`,
+        isAbnormal: true,
+      };
+    }
+  }
+
+  if (stdExam.id === 'std-pe-thorax') {
+    const isHypoxemic = spo2 < 93;
+    const isTachypneic = rr > rrUpper;
+    if (isHypoxemic || isTachypneic) {
+      return {
+        ...stdExam,
+        id: `${stdExam.id}-${cCase.id}`,
+        finding: `Taquipnea (${rr} rpm, SpO₂ ${spo2}%) acorde al esfuerzo o demanda metabólica del cuadro; murmullo vesicular bilateral sin estertores ni sibilancias localizadas.`,
+        isAbnormal: isHypoxemic || rr >= rrUpper + 4,
+      };
+    }
+  }
+
+  if (stdExam.id === 'std-pe-head-eyes') {
+    const hasJaundice = /\b(icteri|colangitis|bilirrubin)\b/.test(nativeTextNorm);
+    const hasPallor = /\b(palid|anemia|hemorrag|melena|ectopico)\b/.test(nativeTextNorm);
+    if (hasJaundice || hasPallor) {
+      const conjNote = hasJaundice
+        ? 'Escleras con tinte ictérico evidente.'
+        : 'Conjuntivas con palidez acorde al grado de anemia/sangrado.';
+      return {
+        ...stdExam,
+        id: `${stdExam.id}-${cCase.id}`,
+        finding: `Pupilas isocóricas normorreactivas a la luz (3 mm). ${conjNote} Orofaringe sin lesiones agudas.`,
+        isAbnormal: true,
+      };
+    }
+  }
+
+  return {
+    ...stdExam,
+    id: `${stdExam.id}-${cCase.id}`,
   };
 }
 
@@ -396,7 +584,7 @@ function sortPhysicalExamsCanonically(exams: PhysicalExamFinding[]): PhysicalExa
 /**
  * Enriquece cualquier caso clínico con el catálogo universal de maniobras de examen físico,
  * sanitiza títulos que puedan dar pistas sobre la patología y garantiza correlación estricta
- * entre el Glasgow de signos vitales y todos los hallazgos de la exploración física.
+ * entre signos vitales, edad, hallazgos nativos y exploraciones complementarias.
  */
 export function enrichCaseWithUniversalPhysicalExam(cCase: ClinicalCase): ClinicalCase {
   const syncedGlasgow = resolveAuthoritativeGlasgow(cCase);
@@ -411,20 +599,25 @@ export function enrichCaseWithUniversalPhysicalExam(cCase: ClinicalCase): Clinic
     )
   );
 
+  const nativeTextNorm = normPe(
+    [
+      cCase.patientInfo?.currentIllness || '',
+      cCase.solution?.correctDiagnosis || '',
+      ...sanitizedExisting.map((e) => `${e.name} ${e.finding}`),
+    ].join(' ')
+  );
+
   const mergedExams: PhysicalExamFinding[] = [...sanitizedExisting];
 
   for (const stdExam of STANDARD_PHYSICAL_EXAMS) {
-    const alreadyHas = sanitizedExisting.some((pe) => isSameExamCategory(pe.name, stdExam.name));
-    if (!alreadyHas) {
+    const alreadyCovered = isStdExamCoveredByNative(stdExam, sanitizedExisting);
+    if (!alreadyCovered) {
       if (stdExam.id === 'std-pe-general') {
-        mergedExams.push(buildContextualGeneralExam(cCase, syncedGlasgow));
+        mergedExams.push(buildContextualGeneralExam(cCase, syncedGlasgow, nativeTextNorm));
       } else if (stdExam.id === 'std-pe-neuro-core') {
-        mergedExams.push(buildContextualNeuroCoreExam(cCase, syncedGlasgow));
+        mergedExams.push(buildContextualNeuroCoreExam(cCase, syncedGlasgow, sanitizedExisting));
       } else {
-        mergedExams.push({
-          ...stdExam,
-          id: `${stdExam.id}-${cCase.id}`,
-        });
+        mergedExams.push(buildContextualStdExam(stdExam, cCase, nativeTextNorm));
       }
     }
   }

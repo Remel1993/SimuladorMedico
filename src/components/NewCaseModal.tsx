@@ -122,8 +122,8 @@ export const NewCaseModal: React.FC<NewCaseModalProps> = ({
     MODES.find((m) => m.id === id)?.short || id;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-sm">
-      <div className="relative w-full max-w-3xl max-h-[92dvh] flex flex-col bg-[#07132B] border border-blue-800/70 rounded-2xl shadow-2xl overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-1.5 sm:p-3 lg:p-4 bg-black/85 backdrop-blur-sm">
+      <div className="relative w-full max-w-[98vw] sm:max-w-[95vw] lg:max-w-5xl xl:max-w-6xl h-[94dvh] sm:h-[90dvh] max-h-[940px] flex flex-col bg-[#07132B] border border-blue-800/70 rounded-2xl shadow-2xl overflow-hidden">
         {/* Modal Header */}
         <div className="px-4 sm:px-6 py-3.5 sm:py-4 bg-[#040B1B] border-b border-blue-900/70 flex items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
@@ -185,7 +185,7 @@ export const NewCaseModal: React.FC<NewCaseModalProps> = ({
                 <label className="text-xs font-bold uppercase tracking-wider text-blue-300 block">
                   1. Seleccione la Modalidad de Dificultad
                 </label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {MODES.map((mode) => {
                     const Icon = mode.icon;
                     const isSelected = selectedMode === mode.id;
@@ -225,7 +225,7 @@ export const NewCaseModal: React.FC<NewCaseModalProps> = ({
                 <label className="text-xs font-bold uppercase tracking-wider text-blue-300 block">
                   2. Seleccione la Especialidad Médica
                 </label>
-                <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
                   {SPECIALTIES.map((spec) => (
                     <button
                       key={spec.id}

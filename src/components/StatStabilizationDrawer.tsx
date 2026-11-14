@@ -309,12 +309,12 @@ export const StatStabilizationDrawer: React.FC<StatStabilizationDrawerProps> = (
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4 overflow-y-auto"
+      className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-1.5 sm:p-3 lg:p-4 overflow-hidden"
       role="dialog"
       aria-modal="true"
       aria-label="Ventana de Aplicación STAT de Emergencias"
     >
-      <div className="w-full max-w-6xl bg-[#050E24] border border-blue-800/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[94dvh]">
+      <div className="w-full max-w-[98vw] sm:max-w-[96vw] xl:max-w-[1440px] h-[96dvh] sm:h-[94dvh] bg-[#050E24] border border-blue-800/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col">
         {/* Modal Header */}
         <div className="px-4 sm:px-6 py-3.5 bg-[#030917] border-b border-blue-900/70 flex items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
@@ -322,10 +322,10 @@ export const StatStabilizationDrawer: React.FC<StatStabilizationDrawerProps> = (
               <Zap className="w-4 h-4" />
             </div>
             <div className="min-w-0">
-              <h2 className="text-sm sm:text-base font-bold text-white truncate">
+              <h2 className="text-sm sm:text-base lg:text-lg font-bold text-white truncate">
                 Aplicación STAT de Emergencias · {caseData.patientInfo.name}
               </h2>
-              <p className="text-[11px] text-blue-200/80 truncate">
+              <p className="text-[11px] sm:text-xs text-blue-200/80 truncate">
                 Seleccione o edite la dosis exacta a administrar, observe los signos vitales en vivo y converse con el paciente.
               </p>
             </div>
@@ -334,7 +334,7 @@ export const StatStabilizationDrawer: React.FC<StatStabilizationDrawerProps> = (
           <button
             type="button"
             onClick={onClose}
-            className="px-3 py-1.5 rounded-lg bg-[#07132B] hover:bg-[#0D2149] border border-blue-800/80 text-xs font-semibold text-blue-100 hover:text-white flex items-center gap-1.5 shrink-0 cursor-pointer transition-colors"
+            className="px-3 sm:px-4 py-2 rounded-lg bg-[#07132B] hover:bg-[#0D2149] border border-blue-800/80 text-xs sm:text-sm font-semibold text-blue-100 hover:text-white flex items-center gap-1.5 shrink-0 cursor-pointer transition-colors"
           >
             <X className="w-4 h-4 shrink-0" />
             <span className="hidden sm:inline">Volver a Consulta</span>
@@ -342,12 +342,12 @@ export const StatStabilizationDrawer: React.FC<StatStabilizationDrawerProps> = (
         </div>
 
         {/* Live Vitals Delta Strip */}
-        <div className="px-4 sm:px-6 py-3 bg-[#040B1B] border-b border-blue-900/60 shrink-0">
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 font-mono tabular-nums">
+        <div className="px-3 sm:px-6 py-2.5 sm:py-3 bg-[#040B1B] border-b border-blue-900/60 shrink-0">
+          <div className="flex lg:grid lg:grid-cols-7 gap-2 overflow-x-auto lg:overflow-visible pb-1 lg:pb-0 no-scrollbar font-mono tabular-nums">
             {vitalComparisons.map((item) => (
               <div
                 key={item.key}
-                className={`rounded-lg border px-2.5 py-2 space-y-0.5 ${
+                className={`min-w-[126px] lg:min-w-0 shrink-0 rounded-lg border px-2.5 py-2 space-y-0.5 ${
                   item.isAlert
                     ? 'bg-rose-950/35 border-rose-700/70'
                     : item.isImproved
@@ -392,9 +392,9 @@ export const StatStabilizationDrawer: React.FC<StatStabilizationDrawerProps> = (
         </div>
 
         {/* Two-Zone Body */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-5 grid grid-cols-1 lg:grid-cols-12 gap-4">
+        <div className="flex-1 min-h-0 overflow-y-auto lg:overflow-hidden p-3.5 sm:p-5 grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-5">
           {/* LEFT: Unified STAT Order Composer + Applied History (5 cols) */}
-          <div className="lg:col-span-5 space-y-4">
+          <div className="lg:col-span-5 lg:h-full lg:overflow-y-auto lg:pr-1 space-y-4">
             <div className="bg-[#07132B] border border-blue-900/60 rounded-xl p-4 space-y-3">
               <div className="flex items-center justify-between gap-2">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
@@ -429,10 +429,10 @@ export const StatStabilizationDrawer: React.FC<StatStabilizationDrawerProps> = (
 
               {/* Quick-Load Chips */}
               <div>
-                <div className="text-[11px] text-blue-300/80 mb-1.5">
+                <div className="text-[11px] sm:text-xs text-blue-300/85 mb-2">
                   Toque una opción rápida para cargarla (puede editar la dosis antes de aplicar):
                 </div>
-                <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto pr-1">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-64 sm:max-h-72 overflow-y-auto pr-1">
                   {filteredPresets.map((preset) => {
                     const isSelected = selectedPresetId === preset.id;
                     return (
@@ -440,14 +440,14 @@ export const StatStabilizationDrawer: React.FC<StatStabilizationDrawerProps> = (
                         key={preset.id}
                         type="button"
                         onClick={() => handleLoadPreset(preset)}
-                        className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors cursor-pointer flex items-center gap-1.5 ${
+                        className={`px-3 py-2.5 rounded-xl text-left text-xs font-medium border transition-colors cursor-pointer flex items-center justify-between gap-2 ${
                           isSelected
-                            ? 'bg-amber-500/20 border-amber-400 text-amber-200'
+                            ? 'bg-amber-500/20 border-amber-400 text-amber-200 ring-1 ring-amber-400/40'
                             : 'bg-[#040B1B] hover:bg-[#0D2149] border-blue-900/70 text-blue-100 hover:text-white'
                         }`}
                       >
-                        <span className="font-semibold">{preset.label}</span>
-                        <span className="text-[10px] text-blue-300/75 font-mono">{preset.dose}</span>
+                        <span className="font-semibold truncate">{preset.label}</span>
+                        <span className="text-[11px] text-blue-300/80 font-mono shrink-0">{preset.dose}</span>
                       </button>
                     );
                   })}
@@ -529,7 +529,7 @@ export const StatStabilizationDrawer: React.FC<StatStabilizationDrawerProps> = (
                   Ninguna dosis STAT aplicada aún. Cargue o escriba un medicamento arriba para evaluar la respuesta hemodinámica y respiratoria.
                 </p>
               ) : (
-                <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
                   {[...statInterventions].reverse().map((rec) => {
                     const isAdverse = rec.effectSeverity === 'reaccion_adversa';
                     const isImproved = rec.effectSeverity === 'mejoria';
@@ -585,7 +585,7 @@ export const StatStabilizationDrawer: React.FC<StatStabilizationDrawerProps> = (
           </div>
 
           {/* RIGHT: Live Patient Revaluation Chat (7 cols) */}
-          <div className="lg:col-span-7 flex flex-col h-[460px] lg:h-[560px] bg-[#07132B] rounded-xl border border-blue-900/60 overflow-hidden">
+          <div className="lg:col-span-7 flex flex-col min-h-[500px] h-[560px] lg:h-full lg:min-h-0 bg-[#07132B] rounded-xl border border-blue-900/60 overflow-hidden">
             <div className="px-4 py-3 bg-[#040B1B] border-b border-blue-900/60 flex items-center justify-between gap-2 shrink-0">
               <div className="flex items-center gap-2 min-w-0">
                 <div className="w-7 h-7 rounded-lg bg-[#0D2149] border border-blue-700/70 flex items-center justify-center text-sky-300 shrink-0">

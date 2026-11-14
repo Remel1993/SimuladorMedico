@@ -109,7 +109,7 @@ export const AnamnesisTab: React.FC<AnamnesisTabProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-[calc(100dvh-220px)] min-h-[430px] max-h-[650px] bg-[#07132B] rounded-xl border border-blue-900/60 overflow-hidden shadow-lg">
+    <div className="flex flex-col h-[calc(100dvh-200px)] min-h-[480px] max-h-[780px] bg-[#07132B] rounded-xl border border-blue-900/60 overflow-hidden shadow-lg">
       {/* Tab Header Bar */}
       <div className="px-3.5 sm:px-5 py-3 bg-[#040B1B] border-b border-blue-900/60 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2.5 min-w-0">

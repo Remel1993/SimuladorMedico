@@ -78,13 +78,13 @@ export const VitalSignsMonitor: React.FC<VitalSignsMonitorProps> = ({
               <button
                 type="button"
                 onClick={onOpenStat}
-                className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold flex items-center gap-1.5 whitespace-nowrap shrink-0 shadow-sm transition-colors cursor-pointer"
+                className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs sm:text-sm font-bold flex items-center gap-2 whitespace-nowrap shrink-0 shadow-md transition-colors cursor-pointer"
                 title="Aplicar tratamiento STAT de emergencia y conversar con el paciente"
               >
-                <Zap className="w-3.5 h-3.5 shrink-0" />
+                <Zap className="w-4 h-4 shrink-0" />
                 <span>Aplicación STAT</span>
                 {statCount > 0 && (
-                  <span className="text-[10px] font-mono tabular-nums bg-black/30 px-1.5 py-0.5 rounded">
+                  <span className="text-[11px] font-mono tabular-nums bg-black/30 px-1.5 py-0.5 rounded">
                     {statCount}
                   </span>
                 )}

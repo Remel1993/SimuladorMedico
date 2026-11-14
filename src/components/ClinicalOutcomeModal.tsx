@@ -96,10 +96,10 @@ export const ClinicalOutcomeModal: React.FC<ClinicalOutcomeModalProps> = ({
   return (
     <div
       ref={overlayRef}
-      className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 overflow-y-auto"
+      className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 lg:p-6 overflow-y-auto"
     >
       <div
-        className={`w-full max-w-2xl rounded-2xl border-2 ${t.border} ${t.bg} shadow-2xl overflow-hidden my-auto`}
+        className={`w-full max-w-[96vw] sm:max-w-3xl lg:max-w-4xl rounded-2xl border-2 ${t.border} ${t.bg} shadow-2xl overflow-hidden my-auto`}
       >
         {/* Top Dramatic Hospital Telemetry Strip */}
         <div className="px-4 sm:px-6 py-3 bg-black/60 border-b border-white/10 flex flex-wrap items-center justify-between gap-2">

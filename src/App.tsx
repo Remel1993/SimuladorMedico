@@ -8,12 +8,16 @@ import { PhysicalExamTab } from './components/PhysicalExamTab';
 import { DiagnosticStudiesTab } from './components/DiagnosticStudiesTab';
 import { DiagnosticTab } from './components/DiagnosticTab';
 import { TreatmentTab } from './components/TreatmentTab';
+import { StatStabilizationDrawer } from './components/StatStabilizationDrawer';
 import { ClinicalAuditTab } from './components/ClinicalAuditTab';
 import { HomeDashboard } from './components/HomeDashboard';
 import { NewCaseModal } from './components/NewCaseModal';
 import { CaseHistoryModal } from './components/CaseHistoryModal';
 import { ClinicalGuideModal } from './components/ClinicalGuideModal';
+import { CalculatorsModal } from './components/CalculatorsModal';
 import { ClinicalOutcomeModal } from './components/ClinicalOutcomeModal';
+
+import { applyStatIntervention, StatApplyInput } from './utils/statStabilization';
 
 import { ALL_CURATED_CASES } from './data/allCases';
 import { enrichCaseWithHospitalCatalog } from './utils/studiesCatalog';
@@ -32,7 +36,9 @@ import {
   SavedCaseRecord,
   GameMode,
   Specialty,
+  StatInterventionRecord,
   UserEvaluationInput,
+  VitalSigns,
 } from './types/clinical';
 
 import {
@@ -74,6 +80,11 @@ export default function App() {
     'anamnesis' | 'background' | 'physical_exam' | 'studies' | 'diagnosis' | 'treatment' | 'audit'
   >('anamnesis');
 
+  // Live Vitals & STAT Stabilization Tracking
+  const [liveVitalSigns, setLiveVitalSigns] = useState<VitalSigns>(() => ALL_CURATED_CASES[0].vitalSigns);
+  const [statInterventions, setStatInterventions] = useState<StatInterventionRecord[]>([]);
+  const [statDrawerOpen, setStatDrawerOpen] = useState(false);
+
   // Interactive Exploration Tracking
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isChatLoading, setIsChatLoading] = useState(false);
@@ -88,7 +99,7 @@ export default function App() {
 
   const [medications, setMedications] = useState<MedicationItem[]>([]);
   const [generalMeasures, setGeneralMeasures] = useState('');
-  const [hospitalizationDecision, setHospitalizationDecision] = useState('Hospitalización en Sala');
+  const [hospitalizationDecision, setHospitalizationDecision] = useState('');
   const [referralCriteria, setReferralCriteria] = useState('');
   const [followUpPlan, setFollowUpPlan] = useState('');
 
@@ -101,6 +112,7 @@ export default function App() {
   const [newCaseModalOpen, setNewCaseModalOpen] = useState(false);
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
   const [guideModalOpen, setGuideModalOpen] = useState(false);
+  const [calculatorsModalOpen, setCalculatorsModalOpen] = useState(false);
   const [isGeneratingCase, setIsGeneratingCase] = useState(false);
   const [pendingOutcome, setPendingOutcome] = useState<DramaticOutcome | null>(null);
   const [recentCaseIds, setRecentCaseIds] = useState<string[]>([]);
@@ -112,18 +124,38 @@ export default function App() {
   const examAutoSubmittedRef = useRef(false);
   const latestFinishRef = useRef<() => void>(() => {});
 
-  // Initialize Load LocalStorage History
+  // Initialize Load LocalStorage History & Seen-Cases Anti-Repetition Deck
   useEffect(() => {
     try {
+      let seenIds: string[] = [];
+      let seenDiags: string[] = [];
+
+      const savedSeenIds = localStorage.getItem('mcs_seen_case_ids_v1');
+      if (savedSeenIds) {
+        const parsedIds = JSON.parse(savedSeenIds);
+        if (Array.isArray(parsedIds)) seenIds = parsedIds.filter(Boolean);
+      }
+
+      const savedSeenDiags = localStorage.getItem('mcs_seen_diagnoses_v1');
+      if (savedSeenDiags) {
+        const parsedDiags = JSON.parse(savedSeenDiags);
+        if (Array.isArray(parsedDiags)) seenDiags = parsedDiags.filter(Boolean);
+      }
+
       const savedHist = localStorage.getItem('mcs_case_history_v1');
       if (savedHist) {
         const parsedHist = JSON.parse(savedHist) as SavedCaseRecord[];
         setHistory(parsedHist);
-        setRecentCaseIds(Array.from(new Set(parsedHist.map((h) => h.caseId).filter(Boolean))).slice(0, 18));
-        setRecentDiagnoses(
-          Array.from(new Set(parsedHist.map((h) => h.correctDiagnosis).filter(Boolean))).slice(0, 15)
-        );
+        for (const h of parsedHist) {
+          if (h.caseId && !seenIds.includes(h.caseId)) seenIds.push(h.caseId);
+          if (h.correctDiagnosis && !seenDiags.includes(h.correctDiagnosis)) {
+            seenDiags.push(h.correctDiagnosis);
+          }
+        }
       }
+
+      setRecentCaseIds(seenIds.slice(-(ALL_CURATED_CASES.length - 1)));
+      setRecentDiagnoses(seenDiags.slice(-65));
     } catch (e) {
       console.warn('Could not read history from localStorage', e);
     }
@@ -138,23 +170,50 @@ export default function App() {
     return () => clearInterval(timer);
   }, [activeView, evaluationResult]);
 
+  // Reset window scroll to top whenever changing views, simulation tabs, cases, or outcome stage
+  useEffect(() => {
+    const resetTop = () => {
+      window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+    };
+    resetTop();
+    const rafId = window.requestAnimationFrame(resetTop);
+    return () => window.cancelAnimationFrame(rafId);
+  }, [activeView, activeTab, currentCase.id, pendingOutcome]);
+
   // Set up case initial dialogue and enter simulation view
   const setupCase = (newCase: ClinicalCase) => {
     const enriched = enrichCaseWithUniversalPhysicalExam(enrichCaseWithHospitalCatalog(newCase));
     setCurrentCase(enriched);
     setRecentCaseIds((prev) => {
-      const updated = prev.includes(enriched.id) ? prev : [...prev, enriched.id];
-      return updated.length >= ALL_CURATED_CASES.length ? [enriched.id] : updated;
+      const withoutCurrent = prev.filter((id) => id !== enriched.id);
+      const updated = [...withoutCurrent, enriched.id].slice(-(ALL_CURATED_CASES.length - 1));
+      try {
+        localStorage.setItem('mcs_seen_case_ids_v1', JSON.stringify(updated));
+      } catch {
+        // Ignore storage quota errors
+      }
+      return updated;
     });
     if (enriched.solution?.correctDiagnosis) {
       setRecentDiagnoses((prev) => {
         const diag = enriched.solution.correctDiagnosis;
-        if (prev.includes(diag)) return prev;
-        return [...prev.slice(-14), diag];
+        const withoutDiag = prev.filter((d) => d !== diag);
+        const updatedDiags = [...withoutDiag, diag].slice(-75);
+        try {
+          localStorage.setItem('mcs_seen_diagnoses_v1', JSON.stringify(updatedDiags));
+        } catch {
+          // Ignore storage quota errors
+        }
+        return updatedDiags;
       });
     }
     setActiveView('simulation');
     setActiveTab('anamnesis');
+    setLiveVitalSigns(enriched.vitalSigns);
+    setStatInterventions([]);
+    setStatDrawerOpen(false);
     setUnlockedExamIds([]);
     setUnlockedStudyIds([]);
     setPrimaryDiagnosis('');
@@ -163,11 +222,7 @@ export default function App() {
     setAdditionalStudiesNeeded('');
     setMedications([]);
     setGeneralMeasures('');
-    setHospitalizationDecision(
-      enriched.patientInfo.triageLevel.includes('Reanimación')
-        ? 'Unidad de Cuidados Intensivos (UCI)'
-        : 'Hospitalización en Sala'
-    );
+    setHospitalizationDecision('');
     setReferralCriteria('');
     setFollowUpPlan('');
     setEvaluationResult(null);
@@ -242,7 +297,20 @@ export default function App() {
           patientPersona: currentCase.internalPersonaPrompt,
           patientInfo: currentCase.patientInfo,
           vitalSigns: currentCase.vitalSigns,
+          liveVitalSigns,
+          appliedStatInterventions: statInterventions.map((s) => ({
+            label: s.label,
+            drug: s.drug,
+            dose: s.dose,
+            route: s.route,
+            effectSeverity: s.effectSeverity,
+            patientFeelingNote: s.patientFeelingNote,
+            deltasSummary: s.deltas.map((d) => `${d.metric} ${d.before}->${d.after}`).join(', '),
+          })),
           background: currentCase.background,
+          clinicalClues: currentCase.solution?.keyClinicalClues,
+          characteristicSymptoms: currentCase.solution?.characteristicSignsSymptoms,
+          specialty: currentCase.specialty,
           caseId: currentCase.id,
         }),
         signal: controller.signal,
@@ -278,6 +346,52 @@ export default function App() {
     }
   };
 
+  // Apply STAT emergency intervention and update live vitals + patient dialogue
+  const handleApplyStatIntervention = (input: StatApplyInput) => {
+    const outcome = applyStatIntervention(
+      liveVitalSigns,
+      currentCase.vitalSigns,
+      currentCase,
+      input,
+      statInterventions,
+      elapsedSeconds
+    );
+
+    setLiveVitalSigns(outcome.updatedVitals);
+    setStatInterventions((prev) => [...prev, outcome.record]);
+
+    // Sync STAT dose into pharmacological plan (avoid exact duplicate drug+dose+route lines)
+    setMedications((prev) => {
+      const normalizedNew = `${outcome.medicationItem.drug.toLowerCase()}::${outcome.medicationItem.dose.toLowerCase()}::${outcome.medicationItem.route.toLowerCase()}`;
+      const alreadyExists = prev.some(
+        (m) => `${m.drug.toLowerCase()}::${m.dose.toLowerCase()}::${m.route.toLowerCase()}` === normalizedNew
+      );
+      return alreadyExists ? prev : [...prev, outcome.medicationItem];
+    });
+
+    const deltasText =
+      outcome.record.deltas.length > 0
+        ? ` · Cambios: ${outcome.record.deltas.map((d) => `${d.metric} ${d.before} → ${d.after}`).join(', ')}`
+        : ' · Signos vitales sin cambios inmediatos';
+
+    const nowTs = outcome.record.appliedAt;
+    const baseTime = Date.now();
+    const sysMsg: ChatMessage = {
+      id: `msg-stat-sys-${baseTime}`,
+      sender: 'system',
+      text: `${outcome.record.drug} (${outcome.record.dose}, ${outcome.record.route})${deltasText}.`,
+      timestamp: nowTs,
+    };
+    const patientReactionMsg: ChatMessage = {
+      id: `msg-stat-pat-${baseTime + 1}`,
+      sender: 'patient',
+      text: outcome.record.patientFeelingNote,
+      timestamp: nowTs,
+    };
+
+    setMessages((prev) => [...prev, sysMsg, patientReactionMsg]);
+  };
+
   // Unlock physical exam finding
   const handleUnlockExam = (id: string) => {
     if (!unlockedExamIds.includes(id)) {
@@ -304,6 +418,8 @@ export default function App() {
   const handleSelectCase = async (mode: GameMode, specialty: Specialty, caseId?: string) => {
     setIsGeneratingCase(true);
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
       const response = await fetch('/api/generate-case', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -311,34 +427,55 @@ export default function App() {
           mode,
           specialty,
           caseId,
-          excludeCaseId: activeView === 'simulation' ? currentCase.id : undefined,
+          excludeCaseId:
+            activeView === 'simulation' || recentCaseIds.includes(currentCase.id)
+              ? currentCase.id
+              : recentCaseIds[recentCaseIds.length - 1],
           excludeCaseIds: recentCaseIds,
           excludeDiagnoses: recentDiagnoses,
         }),
+        signal: controller.signal,
       });
-      const data = await response.json();
-      if (data.case) {
-        setupCase(data.case);
-        setNewCaseModalOpen(false);
+      clearTimeout(timeoutId);
+      if (response.ok) {
+        const data = await response.json();
+        if (data?.case) {
+          setupCase(data.case);
+          setNewCaseModalOpen(false);
+          return;
+        }
       }
-    } catch (err) {
-      console.error('Error fetching case:', err);
+    } catch {
+      // Seamless local fallback below
     } finally {
       setIsGeneratingCase(false);
     }
+
+    const excludeSet = new Set(recentCaseIds);
+    excludeSet.add(currentCase.id);
+    const matching = ALL_CURATED_CASES.filter(
+      (c) =>
+        (caseId ? c.id === caseId : !excludeSet.has(c.id)) &&
+        (specialty === 'aleatorio' || c.specialty === specialty)
+    );
+    const pool = matching.length > 0 ? matching : ALL_CURATED_CASES.filter((c) => c.id !== currentCase.id);
+    const fallbackCase = pool[Math.floor(Math.random() * pool.length)] || ALL_CURATED_CASES[0];
+    setupCase({ ...fallbackCase, mode });
+    setNewCaseModalOpen(false);
   };
 
   // Finish and Evaluate Case
-  const handleFinishCase = async () => {
+  const handleFinishCase = async (pendingDraft?: MedicationItem) => {
     setIsEvaluating(true);
     const doctorQuestions = messages.filter((m) => m.sender === 'doctor').map((m) => m.text);
+    const effectiveMedications = pendingDraft ? [...medications, pendingDraft] : medications;
 
     const submission: UserEvaluationInput = {
       primaryDiagnosis,
       differentialDiagnoses,
       clinicalJustification,
       additionalStudiesNeeded,
-      pharmacologicalPlan: medications,
+      pharmacologicalPlan: effectiveMedications,
       generalMeasures,
       hospitalizationDecision,
       referralCriteria,
@@ -348,6 +485,9 @@ export default function App() {
       questionCount: doctorQuestions.length,
       doctorQuestions,
       timeSpentSeconds: elapsedSeconds,
+      statInterventions,
+      baselineVitalSigns: currentCase.vitalSigns,
+      finalVitalSigns: liveVitalSigns,
     };
 
     try {
@@ -434,7 +574,11 @@ export default function App() {
         correctDiagnosis: record.correctDiagnosis,
       },
     };
-    setCurrentCase(enrichCaseWithUniversalPhysicalExam(enrichCaseWithHospitalCatalog(found)));
+    const enrichedFound = enrichCaseWithUniversalPhysicalExam(enrichCaseWithHospitalCatalog(found));
+    setCurrentCase(enrichedFound);
+    setLiveVitalSigns(enrichedFound.vitalSigns);
+    setStatInterventions([]);
+    setStatDrawerOpen(false);
     setEvaluationResult(record.evaluation);
     setPendingOutcome(null);
     setActiveView('simulation');
@@ -450,6 +594,7 @@ export default function App() {
         onOpenNewCaseModal={() => setNewCaseModalOpen(true)}
         onOpenHistoryModal={() => setHistoryModalOpen(true)}
         onOpenGuideModal={() => setGuideModalOpen(true)}
+        onOpenCalculatorsModal={() => setCalculatorsModalOpen(true)}
         onRestartCase={() => setupCase(currentCase)}
         currentMode={currentCase.mode}
         currentSpecialty={currentCase.specialty}
@@ -467,10 +612,14 @@ export default function App() {
         />
       ) : (
         <>
-          {/* Persistent Vital Signs Monitor */}
+          {/* Persistent Vital Signs Monitor with Single STAT Emergency Trigger */}
           <VitalSignsMonitor
-            vitals={currentCase.vitalSigns}
+            vitals={liveVitalSigns}
+            baselineVitals={currentCase.vitalSigns}
+            statCount={statInterventions.length}
             triageLevel={currentCase.patientInfo.triageLevel}
+            onOpenStat={() => setStatDrawerOpen(true)}
+            showStatButton={!evaluationResult}
           />
 
           {/* Patient Identity Banner */}
@@ -514,32 +663,32 @@ export default function App() {
           </div>
 
           {/* Consultation Timer & Mode Status */}
-          <div className="flex items-center justify-between md:justify-end gap-2.5 shrink-0 px-2 pt-1 md:pt-0 border-t md:border-t-0 border-blue-900/50">
+          <div className="flex items-center justify-between md:justify-end gap-2 shrink-0 px-2 pt-1 md:pt-0 border-t md:border-t-0 border-blue-900/50">
             <span className="text-[11px] text-blue-300/70 md:hidden font-medium">
               Deslice las pestañas
             </span>
 
             {isUrgenciasMode ? (
               <div
-                className={`flex items-center gap-1.5 text-xs font-mono px-2.5 py-1 rounded-lg border ${
+                className={`flex items-center gap-1.5 text-xs font-mono tabular-nums px-2.5 py-1 rounded-lg border ${
                   urgenciasRemaining === 0
-                    ? 'bg-rose-950/70 border-rose-500/80 text-rose-200 animate-pulse'
+                    ? 'bg-rose-950/70 border-rose-500/80 text-rose-200'
                     : urgenciasRemaining <= 120
                     ? 'bg-amber-950/60 border-amber-500/70 text-amber-200'
                     : 'bg-[#040B1B] border-amber-700/60 text-amber-200'
                 }`}
               >
                 <Flame className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                <span className="font-sans text-[11px] font-semibold">Ventana Crítica:</span>
+                <span className="font-sans text-[11px] font-semibold">Ventana:</span>
                 <span className="font-bold text-white">
                   {urgenciasRemaining > 0 ? formatTimer(urgenciasRemaining) : 'EXCEDIDA'}
                 </span>
               </div>
             ) : isExamenMode ? (
               <div
-                className={`flex items-center gap-1.5 text-xs font-mono px-2.5 py-1 rounded-lg border ${
+                className={`flex items-center gap-1.5 text-xs font-mono tabular-nums px-2.5 py-1 rounded-lg border ${
                   examenRemaining <= 60
-                    ? 'bg-rose-950/70 border-rose-500/80 text-rose-200 animate-pulse'
+                    ? 'bg-rose-950/70 border-rose-500/80 text-rose-200'
                     : 'bg-[#040B1B] border-sky-600/70 text-sky-200'
                 }`}
               >
@@ -548,10 +697,9 @@ export default function App() {
                 <span className="font-bold text-white">{formatTimer(examenRemaining)}</span>
               </div>
             ) : (
-              <div className="flex items-center gap-1.5 text-xs text-blue-200/80 font-mono">
+              <div className="flex items-center gap-1.5 text-xs text-blue-200/80 font-mono tabular-nums">
                 <Timer className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-                <span className="hidden sm:inline">Tiempo de Consulta:</span>
-                <span className="sm:hidden">Tiempo:</span>
+                <span className="hidden sm:inline">Tiempo:</span>
                 <span className="font-bold text-white">{formatTimer(elapsedSeconds)}</span>
               </div>
             )}
@@ -626,6 +774,7 @@ export default function App() {
         <div className="transition-all min-w-0">
           {activeTab === 'anamnesis' && (
             <AnamnesisTab
+              key={currentCase.id}
               caseData={currentCase}
               messages={messages}
               onSendMessage={handleSendMessage}
@@ -637,6 +786,7 @@ export default function App() {
 
           {activeTab === 'physical_exam' && (
             <PhysicalExamTab
+              key={currentCase.id}
               caseData={currentCase}
               unlockedExamIds={unlockedExamIds}
               onUnlockExam={handleUnlockExam}
@@ -646,6 +796,7 @@ export default function App() {
 
           {activeTab === 'studies' && (
             <DiagnosticStudiesTab
+              key={currentCase.id}
               caseData={currentCase}
               unlockedStudyIds={unlockedStudyIds}
               onUnlockStudy={handleUnlockStudy}
@@ -669,6 +820,7 @@ export default function App() {
 
           {activeTab === 'treatment' && (
             <TreatmentTab
+              key={currentCase.id}
               medications={medications}
               setMedications={setMedications}
               generalMeasures={generalMeasures}
@@ -697,6 +849,19 @@ export default function App() {
       )}
 
       {/* Modals */}
+      <StatStabilizationDrawer
+        isOpen={statDrawerOpen}
+        onClose={() => setStatDrawerOpen(false)}
+        caseData={currentCase}
+        baselineVitals={currentCase.vitalSigns}
+        liveVitals={liveVitalSigns}
+        statInterventions={statInterventions}
+        messages={messages}
+        onApplyStat={handleApplyStatIntervention}
+        onSendMessage={handleSendMessage}
+        isChatLoading={isChatLoading}
+      />
+
       <NewCaseModal
         isOpen={newCaseModalOpen}
         onClose={() => setNewCaseModalOpen(false)}
@@ -718,6 +883,11 @@ export default function App() {
       <ClinicalGuideModal
         isOpen={guideModalOpen}
         onClose={() => setGuideModalOpen(false)}
+      />
+
+      <CalculatorsModal
+        isOpen={calculatorsModalOpen}
+        onClose={() => setCalculatorsModalOpen(false)}
       />
 
       <ClinicalOutcomeModal

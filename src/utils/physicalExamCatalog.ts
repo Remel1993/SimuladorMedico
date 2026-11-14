@@ -193,7 +193,22 @@ function isSameExamCategory(name1: string, name2: string): boolean {
   if (n1.includes('clonus') || n1.includes('reflejos')) {
     return n2.includes('clonus') || n2.includes('reflejos');
   }
-  if (n1.includes('inspección general') || n1.includes('aspecto general') || n1.includes('estado hídrico') || n1.includes('triángulo')) {
+  if (
+    n1.includes('inspección general') ||
+    n1.includes('inspeccion general') ||
+    n1.includes('aspecto general') ||
+    n1.includes('estado general') ||
+    n1.includes('estado hídrico') ||
+    n1.includes('estado hidrico') ||
+    n1.includes('estado de hidratación') ||
+    n1.includes('estado de hidratacion') ||
+    n1.includes('esfera cognitiva') ||
+    n1.includes('estado de alerta') ||
+    n1.includes('actitud motora') ||
+    n1.includes('signos autonómicos') ||
+    n1.includes('signos autonomicos') ||
+    n1.includes('triángulo')
+  ) {
     return n2.includes('inspección general');
   }
   if ((n1.includes('auscultación') || n1.includes('mecánica')) && (n1.includes('pulmon') || n1.includes('ventilator') || n1.includes('respirator'))) {
@@ -211,11 +226,146 @@ function isSameExamCategory(name1: string, name2: string): boolean {
   if (n1.includes('yugular') || n1.includes('carotídeo')) {
     return n2.includes('ingurgitación yugular');
   }
-  if (n1.includes('pares craneales') || n1.includes('conciencia') || (n1.includes('neurológica') && !n1.includes('meninge'))) {
+  if (
+    n1.includes('pares craneales') ||
+    n1.includes('conciencia') ||
+    n1.includes('estado mental') ||
+    n1.includes('neuromuscular') ||
+    n1.includes('radicular') ||
+    (n1.includes('neurológica') && !n1.includes('meninge'))
+  ) {
     return n2.includes('estado de conciencia');
   }
 
   return false;
+}
+
+function getGlasgowBreakdown(glasgow: number): string {
+  if (glasgow >= 15) return 'O4 V5 M6';
+  if (glasgow === 14) return 'O4 V4 M6 — desorientación o confusión leve';
+  if (glasgow === 13) return 'O3 V4 M6 — apertura ocular al llamado verbal y respuesta verbal confusa';
+  if (glasgow === 12) return 'O3 V4 M5 — somnolencia/letargo con lenguaje confuso y localización de estímulos';
+  if (glasgow === 11) return 'O3 V3 M5 — letargo marcado con lenguaje inapropiado';
+  if (glasgow === 10) return 'O2 V3 M5 — apertura ocular al estímulo doloroso';
+  if (glasgow === 9) return 'O2 V2 M5 — sonidos incomprensibles, localiza al dolor';
+  return 'compromiso severo del estado de alerta; valorar protección de vía aérea';
+}
+
+function resolveAuthoritativeGlasgow(cCase: ClinicalCase): number {
+  const rawGcs = Number(cCase.vitalSigns?.glasgow);
+  let gcs = Number.isFinite(rawGcs) ? Math.min(15, Math.max(3, Math.round(rawGcs))) : 15;
+
+  // Si el monitor marca 15 pero un hallazgo específico del caso documenta explícitamente un Glasgow menor, sincronizar ambos
+  const explicitMatches = (cCase.physicalExamPool || [])
+    .flatMap((pe) => [...pe.finding.matchAll(/glasgow\s*(?:de\s*)?(\d{1,2})/gi)])
+    .map((m) => Number(m[1]))
+    .filter((n) => n >= 3 && n <= 15);
+
+  if (explicitMatches.length > 0 && gcs === 15) {
+    const minExplicit = Math.min(...explicitMatches);
+    if (minExplicit < 15) gcs = minExplicit;
+  }
+
+  // Si el monitor marca 15 pero la historia o exploración describen obnubilación/estupor/somnolencia severa/desorientación franca
+  if (gcs === 15) {
+    const combinedText = [
+      cCase.patientInfo?.currentIllness || '',
+      ...(cCase.physicalExamPool || []).map((pe) => pe.finding),
+    ].join(' ');
+    if (/\b(?:estupor(?:os[oa])?|estado de coma|comatos[oa]|inconsciente)\b/i.test(combinedText)) {
+      gcs = 9;
+    } else if (/\b(?:letarg[oa]|letargia|somnolencia progresiva|desorientad[oa] en tiempo y espacio|obnubilad[oa])\b/i.test(combinedText)) {
+      gcs = 13;
+    }
+  }
+
+  return gcs;
+}
+
+function buildContextualGeneralExam(cCase: ClinicalCase, glasgow: number): PhysicalExamFinding {
+  const bpSys = parseInt((cCase.vitalSigns?.bloodPressure || '120/80').split('/')[0], 10);
+  const likelyDehydrated =
+    bpSys < 95 ||
+    (cCase.vitalSigns?.heartRate || 80) >= 115 ||
+    /v[oó]mit|diarrea|deshidrat|sed intensa|cetoacidosis/i.test(cCase.patientInfo?.currentIllness || '');
+
+  const hydrationText = likelyDehydrated
+    ? 'Mucosas orales con hidratación limítrofe, a correlacionar con el resto de la exploración y signos vitales.'
+    : 'Mucosas orales hidratadas, turgencia cutánea conservada, sin palidez marcada ni cianosis.';
+
+  if (glasgow >= 15) {
+    return {
+      ...STANDARD_PHYSICAL_EXAMS[0],
+      id: `std-pe-general-${cCase.id}`,
+      finding: `Paciente consciente y orientado en las tres esferas (Glasgow 15/15). ${hydrationText}`,
+      isAbnormal: false,
+    };
+  }
+
+  if (glasgow === 14) {
+    return {
+      ...STANDARD_PHYSICAL_EXAMS[0],
+      id: `std-pe-general-${cCase.id}`,
+      finding: `Paciente vigil pero con discreta somnolencia o confusión leve (Glasgow 14/15). ${hydrationText}`,
+      isAbnormal: true,
+    };
+  }
+
+  if (glasgow >= 12) {
+    return {
+      ...STANDARD_PHYSICAL_EXAMS[0],
+      id: `std-pe-general-${cCase.id}`,
+      finding: `Paciente con deterioro moderado del estado de alerta, somnoliento o confuso (Glasgow ${glasgow}/15). ${hydrationText}`,
+      isAbnormal: true,
+    };
+  }
+
+  return {
+    ...STANDARD_PHYSICAL_EXAMS[0],
+    id: `std-pe-general-${cCase.id}`,
+    finding: `Paciente con compromiso importante del estado de conciencia y escasa respuesta al medio (Glasgow ${glasgow}/15). ${hydrationText}`,
+    isAbnormal: true,
+  };
+}
+
+function buildContextualNeuroCoreExam(cCase: ClinicalCase, glasgow: number): PhysicalExamFinding {
+  const breakdown = getGlasgowBreakdown(glasgow);
+  if (glasgow >= 15) {
+    return {
+      ...STANDARD_PHYSICAL_EXAMS.find((e) => e.id === 'std-pe-neuro-core')!,
+      id: `std-pe-neuro-core-${cCase.id}`,
+      finding: `Glasgow 15/15 (${breakdown}). Pares craneales I-XII íntegros y simétricos. Fuerza muscular 5/5 en las cuatro extremidades.`,
+      isAbnormal: false,
+    };
+  }
+
+  return {
+    ...STANDARD_PHYSICAL_EXAMS.find((e) => e.id === 'std-pe-neuro-core')!,
+    id: `std-pe-neuro-core-${cCase.id}`,
+    finding: `Glasgow ${glasgow}/15 (${breakdown}). Pares craneales evaluados sin lesión periférica evidente en este apartado; continuar vigilancia neurológica estrecha.`,
+    isAbnormal: true,
+  };
+}
+
+function synchronizeFindingWithGlasgow(pe: PhysicalExamFinding, glasgow: number): PhysicalExamFinding {
+  if (glasgow >= 15) return pe;
+  let updatedFinding = pe.finding;
+  let changed = false;
+
+  if (/glasgow\s*15(?:\s*\/\s*15)?/i.test(updatedFinding)) {
+    updatedFinding = updatedFinding.replace(/glasgow\s*15(?:\s*\/\s*15)?/gi, `Glasgow ${glasgow}/15`);
+    changed = true;
+  }
+  if (/consciente y orientado en las tres esferas/i.test(updatedFinding)) {
+    const replacement =
+      glasgow === 14
+        ? `vigil con confusión o somnolencia leve (Glasgow ${glasgow}/15)`
+        : `con deterioro del estado de alerta (Glasgow ${glasgow}/15)`;
+    updatedFinding = updatedFinding.replace(/consciente y orientado en las tres esferas/gi, replacement);
+    changed = true;
+  }
+
+  return changed ? { ...pe, finding: updatedFinding, isAbnormal: true } : pe;
 }
 
 export const PHYSICAL_EXAM_SYSTEM_ORDER: PhysicalExamFinding['system'][] = [
@@ -244,31 +394,47 @@ function sortPhysicalExamsCanonically(exams: PhysicalExamFinding[]): PhysicalExa
 }
 
 /**
- * Enriquece cualquier caso clínico con el catálogo universal de maniobras de examen físico
- * y sanitiza títulos que puedan dar pistas sobre la patología.
- * Ordena las maniobras de forma cefalocaudal canónica por sistema para evitar que las
- * maniobras diagnósticas clave aparezcan automáticamente al inicio.
+ * Enriquece cualquier caso clínico con el catálogo universal de maniobras de examen físico,
+ * sanitiza títulos que puedan dar pistas sobre la patología y garantiza correlación estricta
+ * entre el Glasgow de signos vitales y todos los hallazgos de la exploración física.
  */
 export function enrichCaseWithUniversalPhysicalExam(cCase: ClinicalCase): ClinicalCase {
-  const sanitizedExisting: PhysicalExamFinding[] = (cCase.physicalExamPool || []).map((pe) => ({
-    ...pe,
-    name: sanitizePhysicalExamTitle(pe.name),
-  }));
+  const syncedGlasgow = resolveAuthoritativeGlasgow(cCase);
+
+  const sanitizedExisting: PhysicalExamFinding[] = (cCase.physicalExamPool || []).map((pe) =>
+    synchronizeFindingWithGlasgow(
+      {
+        ...pe,
+        name: sanitizePhysicalExamTitle(pe.name),
+      },
+      syncedGlasgow
+    )
+  );
 
   const mergedExams: PhysicalExamFinding[] = [...sanitizedExisting];
 
   for (const stdExam of STANDARD_PHYSICAL_EXAMS) {
     const alreadyHas = sanitizedExisting.some((pe) => isSameExamCategory(pe.name, stdExam.name));
     if (!alreadyHas) {
-      mergedExams.push({
-        ...stdExam,
-        id: `${stdExam.id}-${cCase.id}`,
-      });
+      if (stdExam.id === 'std-pe-general') {
+        mergedExams.push(buildContextualGeneralExam(cCase, syncedGlasgow));
+      } else if (stdExam.id === 'std-pe-neuro-core') {
+        mergedExams.push(buildContextualNeuroCoreExam(cCase, syncedGlasgow));
+      } else {
+        mergedExams.push({
+          ...stdExam,
+          id: `${stdExam.id}-${cCase.id}`,
+        });
+      }
     }
   }
 
   return {
     ...cCase,
+    vitalSigns: {
+      ...cCase.vitalSigns,
+      glasgow: syncedGlasgow,
+    },
     physicalExamPool: sortPhysicalExamsCanonically(mergedExams),
   };
 }

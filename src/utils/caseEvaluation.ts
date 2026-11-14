@@ -2,7 +2,10 @@ import {
   ClinicalCase,
   EvaluationResult,
   RubricCategoryDetail,
+  StatAuditSummary,
+  StatInterventionAuditItem,
   UserEvaluationInput,
+  VitalSigns,
 } from '../types/clinical';
 
 function normStr(s: string): string {
@@ -21,7 +24,206 @@ const STOP_WORDS = new Set([
   'leve', 'moderada', 'moderado', 'cronica', 'cronico', 'sec', 'secundaria',
   'secundario', 'asociada', 'asociado', 'probable', 'posible', 'presuntivo',
   'cuadro', 'sindrome', 'enfermedad', 'alta', 'baja', 'extenso', 'no', 'complicada',
+  'complicado', 'reciente', 'primario', 'primaria', 'idiopatica', 'idiopatico',
+  'simple', 'tipica', 'tipico', 'estable', 'activa', 'activo', 'esencial',
+  'consulta', 'externa', 'nivel', 'primer', 'ventana', 'territorio',
 ]);
+
+export const EVALUATION_FRAMEWORK_LABEL =
+  'Normativa Nicaragüense (MINSA / Lista Básica) + Estándar Internacional (OMS / OPS / AHA / IDSA / NICE)';
+
+interface DiagnosisSynonymGroup {
+  label: string;
+  terms: string[];
+}
+
+const DIAGNOSIS_SYNONYM_GROUPS: DiagnosisSynonymGroup[] = [
+  {
+    label: 'IVU / Cistitis (ITU baja)',
+    terms: ['cistitis', 'ivu baja', 'itu baja', 'infeccion urinaria baja', 'infeccion de vias urinarias baja', 'infeccion vias urinarias', 'infeccion tracto urinario'],
+  },
+  {
+    label: 'Pielonefritis / IVU alta',
+    terms: ['pielonefritis', 'ivu alta', 'itu alta', 'infeccion urinaria alta'],
+  },
+  {
+    label: 'ACV / EVC / Ictus',
+    terms: ['acv', 'evc', 'ictus', 'stroke', 'evento vascular cerebral', 'evento cerebrovascular', 'accidente cerebrovascular', 'infarto cerebral', 'isquemia cerebral'],
+  },
+  {
+    label: 'IAMCEST / SCACEST',
+    terms: ['iamcest', 'scacest', 'iam con elevacion', 'ima con elevacion', 'infarto agudo de miocardio', 'infarto agudo del miocardio', 'infarto al miocardio', 'sindrome coronario agudo con elevacion'],
+  },
+  {
+    label: 'Neumonía Adquirida en la Comunidad (NAC)',
+    terms: ['nac', 'neumonia adquirida en la comunidad', 'neumonia comunitaria', 'neumonia bacteriana'],
+  },
+  {
+    label: 'Enfermedad Diarreica Aguda (EDA / GEPI)',
+    terms: ['eda', 'edas', 'gepi', 'gastroenteritis', 'diarrea aguda', 'enfermedad diarreica aguda'],
+  },
+  {
+    label: 'Lesión / Insuficiencia Renal Aguda (LRA / AKI)',
+    terms: ['lra', 'aki', 'lesion renal aguda', 'insuficiencia renal aguda', 'injuria renal aguda', 'falla renal aguda'],
+  },
+  {
+    label: 'Dengue con Signos de Alarma (Grupo B2)',
+    terms: ['dengue con signos de alarma', 'dengue signos de alarma', 'dengue grupo b2', 'dengue b2', 'dengue con alarma'],
+  },
+  {
+    label: 'Tromboembolia Pulmonar (TEP)',
+    terms: ['tep', 'tromboembolia pulmonar', 'embolia pulmonar', 'tromboembolismo pulmonar'],
+  },
+  {
+    label: 'Cetoacidosis Diabética (CAD)',
+    terms: ['cad', 'cetoacidosis diabetica'],
+  },
+  {
+    label: 'Estado Hiperosmolar Hiperglucémico (EHH)',
+    terms: ['ehh', 'estado hiperosmolar'],
+  },
+  {
+    label: 'Hipertensión Arterial (HTA)',
+    terms: ['hta', 'hipertension arterial', 'hipertension esencial'],
+  },
+  {
+    label: 'Diabetes Mellitus Tipo 2 (DM2)',
+    terms: ['dm2', 'dm 2', 'diabetes mellitus tipo 2', 'diabetes tipo 2'],
+  },
+  {
+    label: 'EPOC',
+    terms: ['epoc', 'enfermedad pulmonar obstructiva cronica'],
+  },
+  {
+    label: 'ERGE / Reflujo Gastroesofágico',
+    terms: ['erge', 'reflujo gastroesofagico', 'enfermedad por reflujo'],
+  },
+  {
+    label: 'Síndrome de Intestino Irritable (SII)',
+    terms: ['sii', 'intestino irritable', 'colon irritable'],
+  },
+  {
+    label: 'Síndrome de Ovario Poliquístico (SOP)',
+    terms: ['sop', 'ovario poliquistico'],
+  },
+  {
+    label: 'Vértigo Posicional Paroxístico Benigno (VPPB)',
+    terms: ['vppb', 'vertigo posicional', 'vertigo benigno'],
+  },
+  {
+    label: 'Otitis Media Aguda (OMA)',
+    terms: ['oma', 'otitis media aguda'],
+  },
+  {
+    label: 'Faringoamigdalitis Estreptocócica',
+    terms: ['faringoamigdalitis', 'amigdalitis estreptococica', 'faringitis estreptococica'],
+  },
+  {
+    label: 'Laringotraqueobronquitis / Crup',
+    terms: ['crup', 'croup', 'laringotraqueobronquitis', 'laringotraqueitis'],
+  },
+  {
+    label: 'Herpes Zóster',
+    terms: ['herpes zoster', 'zoster', 'culebrilla'],
+  },
+  {
+    label: 'Tiña Corporal / Dermatofitosis',
+    terms: ['tina corporal', 'tinea corporis', 'dermatofitosis', 'micosis superficial'],
+  },
+  {
+    label: 'Parálisis Facial Periférica (Bell)',
+    terms: ['paralisis de bell', 'paralisis facial periferica', 'paralisis facial idiopatica'],
+  },
+  {
+    label: 'Síndrome de Stevens-Johnson (SSJ)',
+    terms: ['ssj', 'stevens johnson', 'necrolisis epidermica'],
+  },
+  {
+    label: 'Preeclampsia / Trastorno Hipertensivo Gestacional',
+    terms: ['preeclampsia', 'sindrome hipertensivo gestacional', 'trastorno hipertensivo del embarazo'],
+  },
+  {
+    label: 'Choque Anafiláctico / Anafilaxia',
+    terms: ['anafilaxia', 'choque anafilactico', 'shock anafilactico'],
+  },
+  {
+    label: 'Choque Séptico / Sepsis',
+    terms: ['sepsis', 'choque septico', 'shock septico', 'urosepsis'],
+  },
+  {
+    label: 'Lumbalgia Mecánica / Radiculopatía',
+    terms: ['lumbalgia', 'lumbago', 'dolor lumbar'],
+  },
+  {
+    label: 'Radiculopatía Lumbar / Ciática',
+    terms: ['radiculopatia', 'lumbociatica', 'ciatica', 'hernia discal'],
+  },
+  {
+    label: 'Anemia Ferropénica',
+    terms: ['anemia ferropenica', 'anemia por deficiencia de hierro', 'anemia microcitica ferropenica'],
+  },
+  {
+    label: 'Anemia Megaloblástica / Déficit B12',
+    terms: ['anemia megaloblastica', 'deficiencia de vitamina b12', 'deficit de b12', 'cobalamina'],
+  },
+];
+
+function expandClinicalAbbreviations(rawText: string, targetContextNorm = ''): string {
+  let text = normStr(rawText);
+  if (!text) return '';
+
+  const isRenalTarget = /renal|rinon|nefro|hiperpotas|hiperkal/.test(targetContextNorm);
+  const replacements: Array<[RegExp, string]> = [
+    [/\bivu\b/g, 'infeccion vias urinarias cistitis pielonefritis'],
+    [/\bitu\b/g, 'infeccion tracto urinario cistitis pielonefritis'],
+    [/\bedas?\b/g, 'enfermedad diarreica aguda gastroenteritis diarrea'],
+    [/\bgepi\b/g, 'gastroenteritis infecciosa diarrea aguda'],
+    [/\bnac\b/g, 'neumonia adquirida comunidad'],
+    [/\b(?:acv|evc|ictus|stroke)\b/g, 'evento vascular cerebral cerebrovascular ictus isquemia'],
+    [/\b(?:iamcest|scacest)\b/g, 'infarto agudo miocardio elevacion segmento st'],
+    [/\bima\b/g, 'infarto agudo miocardio'],
+    [/\bsca\b/g, 'sindrome coronario agudo'],
+    [/\b(?:lra|aki)\b/g, 'lesion insuficiencia renal aguda'],
+    [/\bira\b/g, isRenalTarget ? 'insuficiencia lesion renal aguda' : 'infeccion respiratoria aguda'],
+    [/\bcad\b/g, 'cetoacidosis diabetica'],
+    [/\behh\b/g, 'estado hiperosmolar hiperglucemico'],
+    [/\btep\b/g, 'tromboembolia pulmonar embolia'],
+    [/\bhta\b/g, 'hipertension arterial sistemica'],
+    [/\bdm2\b|\bdm\s*2\b/g, 'diabetes mellitus tipo 2'],
+    [/\bepoc\b/g, 'enfermedad pulmonar obstructiva cronica'],
+    [/\bvppb\b/g, 'vertigo posicional paroxistico benigno'],
+    [/\berge\b/g, 'enfermedad reflujo gastroesofagico'],
+    [/\bsii\b/g, 'sindrome intestino irritable'],
+    [/\bsop\b/g, 'sindrome ovario poliquistico'],
+    [/\boma\b/g, 'otitis media aguda'],
+    [/\bssj\b/g, 'sindrome stevens johnson'],
+    [/\bles\b/g, 'lupus eritematoso sistemico'],
+    [/\bhda\b/g, 'hemorragia digestiva alta'],
+    [/\btvp\b/g, 'trombosis venosa profunda'],
+    [/\bculebrilla\b/g, 'herpes zoster'],
+    [/\blumbago\b/g, 'lumbalgia'],
+    [/\bciatica\b|\blumbociatica\b/g, 'radiculopatia lumbar ciatica'],
+    [/\bshock\b/g, 'choque'],
+    [/\bgrupo\s*b2\b/g, 'dengue signos alarma'],
+    [/\bbell\b/g, 'paralisis facial periferica bell'],
+    [/\bcrup\b|\bcroup\b/g, 'laringotraqueobronquitis crup'],
+    [/\btina\b|\btinea\b/g, 'tina tinea dermatofitosis'],
+  ];
+
+  for (const [pattern, expansion] of replacements) {
+    if (pattern.test(text)) {
+      text = `${text} ${expansion}`;
+    }
+  }
+  return text.trim();
+}
+
+function stripParentheticalQualifiers(text: string): string {
+  return (text || '')
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 function significantTokens(s: string): string[] {
   return normStr(s)
@@ -32,7 +234,8 @@ function significantTokens(s: string): string[] {
 function tokenMatchRatio(userText: string, targetText: string): number {
   const tTokens = significantTokens(targetText);
   if (tTokens.length === 0) return 0;
-  const uNorm = normStr(userText);
+  const targetNorm = normStr(targetText);
+  const uNorm = expandClinicalAbbreviations(userText, targetNorm);
   if (!uNorm) return 0;
 
   let hits = 0;
@@ -45,6 +248,58 @@ function tokenMatchRatio(userText: string, targetText: string): number {
   return hits / tTokens.length;
 }
 
+function hasClinicalTerm(normHaystack: string, normTerm: string): boolean {
+  if (!normHaystack || !normTerm) return false;
+  const escaped = normTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+  return new RegExp(`(?:^|\\s)${escaped}(?=\\s|$)`).test(normHaystack);
+}
+
+function computeClinicalDiagnosisMatch(
+  userText: string,
+  targetText: string
+): { ratio: number; matchedSynonymLabel?: string } {
+  const uRawNorm = normStr(userText);
+  const tRawNorm = normStr(targetText);
+  if (!uRawNorm || !tRawNorm) return { ratio: 0 };
+
+  const coreTarget = stripParentheticalQualifiers(targetText);
+  const fullRatio = tokenMatchRatio(userText, targetText);
+  const coreRatio = coreTarget ? tokenMatchRatio(userText, coreTarget) : 0;
+  let bestRatio = Math.max(fullRatio, coreRatio >= 0.7 ? Math.max(fullRatio, 0.85) : coreRatio);
+  let matchedSynonymLabel: string | undefined;
+
+  // Check if both user diagnosis and target belong to the same recognized clinical synonym/acronym group
+  const uExpanded = expandClinicalAbbreviations(userText, tRawNorm);
+  const tExpanded = expandClinicalAbbreviations(targetText, tRawNorm);
+  for (const group of DIAGNOSIS_SYNONYM_GROUPS) {
+    const targetInGroup = group.terms.some(
+      (term) => hasClinicalTerm(tRawNorm, term) || hasClinicalTerm(tExpanded, term)
+    );
+    if (!targetInGroup) continue;
+    const userInGroup = group.terms.some(
+      (term) => hasClinicalTerm(uRawNorm, term) || hasClinicalTerm(uExpanded, term)
+    );
+    if (userInGroup) {
+      // Preserve subtype accuracy when target explicitly specifies "baja" vs "alta" or "isquemico" vs "hemorragico"
+      const targetLower = tRawNorm;
+      const userLower = uRawNorm;
+      const subtypeConflict =
+        (targetLower.includes('baja') && userLower.includes('alta')) ||
+        (targetLower.includes('alta') && userLower.includes('baja')) ||
+        (targetLower.includes('isquem') && userLower.includes('hemorrag')) ||
+        (targetLower.includes('hemorrag') && userLower.includes('isquem'));
+      if (!subtypeConflict) {
+        if (bestRatio < 0.82) {
+          bestRatio = 0.82;
+          matchedSynonymLabel = group.label;
+        }
+      }
+    }
+  }
+
+  return { ratio: bestRatio, matchedSynonymLabel };
+}
+
 /**
  * Elimina cláusulas donde el médico indica explícitamente SUSPENDER, RETIRAR, EVITAR o NO USAR
  * un medicamento (por ejemplo: "Suspender Enalapril y Naproxeno de inmediato").
@@ -54,7 +309,13 @@ function stripNegatedMedicationClauses(text: string): string {
   const noAccents = text
     .toLowerCase()
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
+    .replace(/[\u0300-\u036f]/g, '')
+    // Elimina menciones de alergia o alternativa segura incluidas en notas de dosis/racional (p. ej. "con alergia grave a penicilinas")
+    .replace(
+      /(?:\b(?:por|con|ante|debido\s+a|en)\s+)?alergi[ao]s?\s+(?:grave\s+|severa\s+|documentada\s+)?(?:tipo\s*\d+\s+)?(?:anafilactic[ao]\s+)?a\s+[^.,;)]+/gi,
+      ' '
+    )
+    .replace(/\balternativa\s+(?:segura\s+)?(?:a|ante|por)\s+[^.,;)]+/gi, ' ');
   const sentences = noAccents.split(/[.;\n]+/);
   const kept = sentences.map((seg) =>
     seg.replace(
@@ -224,37 +485,456 @@ function checkCriticalSafetyErrors(
     );
   }
 
+  // 11. Tiña corporal / dermatofitosis + corticoide (produce Tiña Incógnita)
+  if (diagNorm.includes('tina') || diagNorm.includes('tinea') || diagNorm.includes('dermatofitosis')) {
+    if (
+      /\b(hidrocortisona|betametasona|clobetasol|dexametasona|prednisona|prednisolona|mometasona|triamcinolona|fluocinolona|barmicil|quadriderm|corticoide[s]?)\b/.test(
+        activeRxOnly
+      )
+    ) {
+      errors.push(
+        '¡ERROR CRÍTICO DE PRIMER NIVEL!: Prescripción de corticoide tópico o sistémico (o crema combinada con betametasona) en Tiña corporal. Suprime la inmunidad local y genera Tiña Incógnita.'
+      );
+    }
+  }
+
+  // 12. Hemorragia digestiva alta / Úlcera péptica / Colitis ulcerosa + AINEs o AAS
+  if (
+    diagNorm.includes('hemorragia digestiva') ||
+    diagNorm.includes('ulcera peptica') ||
+    diagNorm.includes('colitis ulcerosa')
+  ) {
+    if (
+      /\b(ibuprofeno|ketorolaco|diclofenaco|naproxeno|meloxicam|celecoxib|indometacina|piroxicam|aspirina|acido acetilsalicilico|aas)\b/.test(
+        activeRxOnly
+      )
+    ) {
+      errors.push(
+        '¡ERROR CRÍTICO!: Prescripción de AINEs o Ácido Acetilsalicílico en paciente con Hemorragia Digestiva Alta, Úlcera Péptica o Colitis Ulcerosa activa; agrava la lesión mucosa y el sangrado.'
+      );
+    }
+  }
+
+  // 13. Epilepsia en mujer en edad fértil + Ácido Valproico (riesgo teratogénico mayor)
+  if (
+    diagNorm.includes('epilep') &&
+    caseData.patientInfo?.sex === 'Femenino' &&
+    (caseData.patientInfo?.age ?? 30) < 48
+  ) {
+    if (/\b(valproato|acido valproico|valproico|divalproex|depakene)\b/.test(activeRxOnly)) {
+      errors.push(
+        '¡ERROR CRÍTICO DE SEGURIDAD TERATOGÉNICA!: Prescripción de Ácido Valproico en mujer en edad fértil con epilepsia. Alto riesgo de defectos del tubo neural y trastornos del neurodesarrollo (preferir Levetiracetam o Lamotrigina).'
+      );
+    }
+  }
+
+  // 14. Asma / EPOC + Betabloqueador no selectivo o depresor respiratorio
+  if (diagNorm.includes('asma') || diagNorm.includes('epoc') || diagNorm.includes('obstructiva cronica')) {
+    if (/\b(propranolol|nadolol|carvedilol|timolol|sotalol)\b/.test(activeRxOnly)) {
+      errors.push(
+        '¡ERROR CRÍTICO!: Prescripción de betabloqueador no selectivo en paciente con Asma o EPOC; riesgo de broncoespasmo grave refractario.'
+      );
+    }
+  }
+  if (diagNorm.includes('crisis asmatica') || diagNorm.includes('epoc')) {
+    if (/\b(alprazolam|diazepam|lorazepam|clonazepam|midazolam|morfina|fentanilo|codeina)\b/.test(activeRxOnly)) {
+      errors.push(
+        '¡ERROR CRÍTICO!: Prescripción de benzodiacepinas u opioides en Crisis Asmática o EPOC; riesgo de depresión respiratoria hipercápnica y paro ventilatorio.'
+      );
+    }
+  }
+
+  // 15. Bronquiectasias infectadas + antitusígenos supresores (codeína / dextrometorfano)
+  if (diagNorm.includes('bronquiectas')) {
+    if (/\b(codeina|dextrometorfano|levodropropizina)\b/.test(activeRxOnly)) {
+      errors.push(
+        '¡ERROR CRÍTICO!: Uso de antitusígenos supresores (codeína/dextrometorfano) en Bronquiectasias; impide la depuración mucociliar y agrava el tapón mucopurulento.'
+      );
+    }
+  }
+
+  // 16. Delirium Tremens / Abstinencia alcohólica + Dextrosa IV sin Tiamina
+  if (diagNorm.includes('delirium tremens') || diagNorm.includes('abstinencia alcoholica')) {
+    if (/\b(dextrosa|glucosa|glucosada)\b/.test(activeRxOnly) && !/\b(tiamina|vitamina b1|b1)\b/.test(lowerTreatment)) {
+      errors.push(
+        '¡ERROR CRÍTICO!: Administración de solución glucosada IV sin Tiamina (Vitamina B1) previa en paciente con abstinencia alcohólica / Delirium Tremens; puede precipitar Encefalopatía de Wernicke aguda.'
+      );
+    }
+  }
+
+  // 17. Preeclampsia con severidad + IECA/ARA-II/AINEs
+  if (diagNorm.includes('preeclampsia')) {
+    if (
+      /\b(enalapril|captopril|lisinopril|ramipril|losartan|valsartan|irbesartan|telmisartan|ibuprofeno|ketorolaco|naproxeno|diclofenaco)\b/.test(
+        activeRxOnly
+      )
+    ) {
+      errors.push(
+        '¡ERROR CRÍTICO MATERNO-FETAL!: Uso de IECA, ARA-II o AINEs en Preeclampsia con criterios de severidad (contraindicación obstétrica y nefrotoxicidad).'
+      );
+    }
+  }
+
   return errors;
 }
 
-const DRUG_SYNONYM_GROUPS: string[][] = [
-  ['aspirina', 'acido acetilsalicilico', 'aas'],
-  ['adrenalina', 'epinefrina'],
-  ['paracetamol', 'acetaminofen'],
-  ['salina', 'cloruro de sodio', 'fisiologica', 'cristaloides', 'hartmann', 'ringer'],
-  ['hartmann', 'ringer lactato', 'lactato de ringer', 'cristaloides'],
-  ['insulina', 'insulina rapida', 'insulina regular', 'insulina cristalina'],
-  ['enoxaparina', 'heparina', 'hbpm'],
-  ['levofloxacino', 'moxifloxacino', 'fluoroquinolona'],
-  ['oxigeno', 'oxigenoterapia', 'o2'],
-  ['lorazepam', 'diazepam', 'midazolam', 'benzodiacepina'],
-  ['ticagrelor', 'prasugrel', 'clopidogrel', 'p2y12'],
-  ['tramadol', 'buprenorfina', 'morfina', 'fentanilo'],
-  ['dextrosa', 'glucosa', 'solucion glucosada'],
+const SYSTEMIC_ANTIBIOTIC_REGEX =
+  /\b(amoxicilin[a-z]*|ampicilin[a-z]*|azitromicina|claritromicina|eritromicina|ciprofloxacino|levofloxacino|moxifloxacino|ceftriaxona|cefalexina|cefuroxima|cefixima|clindamicina|metronidazol|doxiciclina|trimetoprim|sulfametoxazol|nitrofurantoina|fosfomicina|vancomicina|meropenem|piperacilina|gentamicina|amikacina)\b/;
+
+function isNonBacterialPrimaryCase(diagNorm: string): boolean {
+  if (
+    /\b(bacteriana|estreptococica|pielonefritis|cistitis|colangitis|meningitis|neumonia|apendicitis|colecistitis|erisipela|endocarditis|absceso|sepsis|urosepsis)\b/.test(
+      diagNorm
+    ) ||
+    diagNorm.includes('bronquiectasias infectadas')
+  ) {
+    return false;
+  }
+  return /\b(bronquiolitis|gastroenteritis|laringotraqueobronquitis|crup|dengue|herpes zoster|pancreatitis aguda|reflujo gastroesofagico|erge|intestino irritable|esguince|lumbalgia mecanica|vertigo posicional|vppb|migrana|ansiedad|tunel del carpo|vitamina b12|vitamina d|ferropenica|hipotiroidismo|hipertension arterial|diabetes mellitus|ovario poliquistico|tina corporal|tinea corporis|candidiasis|paralisis facial|radiculopatia|hernia inguinal|asma bronquial|epoc.*estable|pericarditis aguda|cefalea tensional)\b/.test(
+    diagNorm
+  );
+}
+
+function isSimplePrimaryWorkupCase(diagNorm: string): boolean {
+  return /\b(lumbalgia mecanica|esguince lateral|vertigo posicional|vppb|faringoamigdalitis|cistitis aguda|tina corporal|tinea corporis|herpes zoster|otitis media|gastroenteritis aguda probable viral|candidiasis)\b/.test(
+    diagNorm
+  );
+}
+
+function getDispositionRank(decisionNorm: string): number {
+  if (!decisionNorm) return 0;
+  if (decisionNorm.includes('ambulatorio')) return 1;
+  if (decisionNorm.includes('observacion')) return 2;
+  if (decisionNorm.includes('hospitalizacion')) return 3;
+  if (decisionNorm.includes('uci') || decisionNorm.includes('intensivos')) return 4;
+  return 0;
+}
+
+interface TherapeuticEquivalenceGroup {
+  label: string;
+  note: string;
+  terms: string[];
+  excludeIfDiag?: RegExp;
+  onlyIfDiag?: RegExp;
+}
+
+const THERAPEUTIC_EQUIVALENCE_GROUPS: TherapeuticEquivalenceGroup[] = [
+  {
+    label: 'Ácido Acetilsalicílico (ASA / Aspirina)',
+    note: 'Equivalencia directa de nomenclatura',
+    terms: ['aspirina', 'acido acetilsalicilico', 'aas', 'asa'],
+  },
+  {
+    label: 'Epinefrina / Adrenalina',
+    note: 'Equivalencia directa de nomenclatura',
+    terms: ['adrenalina', 'epinefrina'],
+  },
+  {
+    label: 'Acetaminofén / Paracetamol (LBM MINSA)',
+    note: 'Acetaminofén y Paracetamol son la misma molécula',
+    terms: ['paracetamol', 'acetaminofen'],
+  },
+  {
+    label: 'Analgésico / Antipirético no opioide (MINSA)',
+    note: 'Metamizol/Dipirona aceptado como alternativa antipirética/analgésica cuando no existe contraindicación hemorrágica o por Dengue',
+    terms: ['paracetamol', 'acetaminofen', 'metamizol', 'dipirona'],
+    excludeIfDiag: /dengue|hemorrag|ulcera|colitis|stevens/,
+  },
+  {
+    label: 'AINEs antiinflamatorios/analgésicos',
+    note: 'Equivalencia de clase AINE según disponibilidad (MINSA / Internacional)',
+    terms: ['ibuprofeno', 'naproxeno', 'diclofenaco', 'ketoprofeno', 'ketorolaco', 'meloxicam', 'celecoxib', 'indometacina'],
+    excludeIfDiag: /dengue|hemorrag|ulcera|lesion renal|insuficiencia renal|preeclampsia|colitis/,
+  },
+  {
+    label: 'Cristaloides Isotónicos (SSN 0.9% / Hartmann / Ringer)',
+    note: 'Cristaloide isotónico equivalente para reanimación o hidratación IV',
+    terms: ['salina', 'ssn', 'cloruro de sodio', 'fisiologica', 'cristaloides', 'hartmann', 'ringer', 'lactato de ringer'],
+  },
+  {
+    label: 'Sales de Rehidratación Oral (SRO / Suero Oral)',
+    note: 'SRO estándar OMS / Plan A-B MINSA',
+    terms: ['suero oral', 'sro', 'sales de rehidratacion', 'rehidratacion oral', 'vida suero oral', 'suero de rehidratacion'],
+  },
+  {
+    label: 'Insulina Cristalina / Rápida / Regular',
+    note: 'Insulina regular (cristalina) para manejo agudo',
+    terms: ['insulina', 'insulina rapida', 'insulina regular', 'insulina cristalina'],
+  },
+  {
+    label: 'Anticoagulación Parenteral (HBPM / HNF)',
+    note: 'Equivalencia HBPM (Enoxaparina) o Heparina No Fraccionada (LBM MINSA)',
+    terms: ['enoxaparina', 'heparina', 'hbpm', 'hnf', 'dalteparina', 'fondaparinux'],
+  },
+  {
+    label: 'Fluoroquinolona Respiratoria',
+    note: 'Fluoroquinolona antineumocócica equivalente',
+    terms: ['levofloxacino', 'moxifloxacino', 'fluoroquinolona'],
+  },
+  {
+    label: 'Oxigenoterapia suplementaria',
+    note: 'Soporte de oxígeno titulado',
+    terms: ['oxigeno', 'oxigenoterapia', 'o2', 'canula nasal', 'mascarilla'],
+  },
+  {
+    label: 'Benzodiacepinas de urgencia',
+    note: 'Benzodiacepina equivalente según disponibilidad (Diazepam LBM MINSA / Lorazepam / Midazolam)',
+    terms: ['lorazepam', 'diazepam', 'midazolam', 'clonazepam', 'benzodiacepina'],
+  },
+  {
+    label: 'Inhibidor P2Y12 (Clopidogrel LBM MINSA / Ticagrelor / Prasugrel)',
+    note: 'Antiagregante P2Y12 equivalente según disponibilidad (Clopidogrel en LBM MINSA; Ticagrelor/Prasugrel en guías ESC/AHA)',
+    terms: ['ticagrelor', 'prasugrel', 'clopidogrel', 'p2y12'],
+  },
+  {
+    label: 'Terapia de Reperfusión / Trombólisis (Estreptoquinasa / Alteplasa / ICP)',
+    note: 'Reperfusión coronaria o trombólisis disponible según nivel resolutivo',
+    terms: ['alteplasa', 'tenecteplasa', 'estreptoquinasa', 'trombolisis', 'fibrinolisis', 'angioplastia', 'icp'],
+  },
+  {
+    label: 'Analgésicos Opioides / Rescate de Dolor Severo',
+    note: 'Opioide titulado equivalente',
+    terms: ['tramadol', 'buprenorfina', 'morfina', 'fentanilo'],
+  },
+  {
+    label: 'Soluciones Glucosadas (Dextrosa)',
+    note: 'Dextrosa / solución glucosada equivalente',
+    terms: ['dextrosa', 'glucosa', 'solucion glucosada', 'dw5', 'dw10', 'dw50'],
+  },
+  {
+    label: 'Inhibidores de Bomba de Protones (Omeprazol LBM MINSA)',
+    note: 'IBP equivalente de clase (Omeprazol LBM MINSA / Pantoprazol / Esomeprazol)',
+    terms: ['omeprazol', 'esomeprazol', 'pantoprazol', 'lansoprazol', 'rabeprazol'],
+  },
+  {
+    label: 'IECA (Enalapril LBM MINSA)',
+    note: 'IECA equivalente de clase',
+    terms: ['enalapril', 'captopril', 'lisinopril', 'ramipril'],
+  },
+  {
+    label: 'ARA-II (Irbesartán / Losartán LBM MINSA)',
+    note: 'ARA-II equivalente de clase',
+    terms: ['losartan', 'irbesartan', 'valsartan', 'telmisartan', 'candesartan'],
+  },
+  {
+    label: 'Bloqueo SRAA Primera Línea en HTA Crónica / Nefropatía',
+    note: 'En HTA crónica o nefropatía diabética estable, IECA, ARA-II o calcioantagonista de primera línea son alternativas válidas (MINSA / ESC / ACC)',
+    terms: ['enalapril', 'lisinopril', 'losartan', 'irbesartan', 'valsartan', 'amlodipino', 'hidroclorotiazida'],
+    onlyIfDiag: /hipertension arterial|nefropatia|microalbuminuria|diabetes/,
+  },
+  {
+    label: 'Calcioantagonistas Dihidropiridínicos',
+    note: 'Calcioantagonista equivalente (Amlodipino LBM MINSA / Nifedipino)',
+    terms: ['amlodipino', 'nifedipino', 'felodipino'],
+  },
+  {
+    label: 'Diuréticos Tiazídicos',
+    note: 'Tiazida equivalente (Hidroclorotiazida LBM MINSA / Clortalidona)',
+    terms: ['hidroclorotiazida', 'clortalidona', 'indapamida'],
+  },
+  {
+    label: 'Betabloqueadores Cardioselectivos / Falla Cardíaca',
+    note: 'Betabloqueador equivalente según ficha terapéutica',
+    terms: ['metoprolol', 'bisoprolol', 'carvedilol', 'atenolol', 'nebivolol'],
+    excludeIfDiag: /asma|epoc/,
+  },
+  {
+    label: 'Estatinas de Alta/Moderada Intensidad',
+    note: 'Estatina equivalente (Atorvastatina / Simvastatina LBM MINSA / Rosuvastatina)',
+    terms: ['atorvastatina', 'rosuvastatina', 'simvastatina', 'pravastatina'],
+  },
+  {
+    label: 'Antidiabéticos Orales Primera Línea (Metformina / Sulfonilurea LBM / iSGLT2)',
+    note: 'Metformina en primera línea o combinación según LBM MINSA / ADA',
+    terms: ['metformina', 'glibenclamida', 'glimepirida', 'empagliflozina', 'dapagliflozina', 'sitagliptina'],
+  },
+  {
+    label: 'Antihistamínicos H1 (Loratadina / Clorfeniramina LBM MINSA)',
+    note: 'Antihistamínico H1 equivalente (Loratadina, Cetirizina, Clorfeniramina)',
+    terms: ['loratadina', 'cetirizina', 'desloratadina', 'fexofenadina', 'clorfeniramina', 'difenhidramina'],
+  },
+  {
+    label: 'Corticoides Inhalados (Beclometasona LBM MINSA / Budesonida)',
+    note: 'Corticoide inhalado equivalente (Beclometasona es estándar en LBM MINSA)',
+    terms: ['beclometasona', 'budesonida', 'fluticasona', 'mometasona'],
+  },
+  {
+    label: 'Corticoides Sistémicos (Prednisona / Hidrocortisona / Dexametasona)',
+    note: 'Corticoide sistémico equivalente según vía (Prednisona VO / Hidrocortisona o Dexametasona IV)',
+    terms: ['prednisona', 'prednisolona', 'hidrocortisona', 'metilprednisolona', 'dexametasona'],
+    excludeIfDiag: /tina|tinea|dermatofitosis|dengue/,
+  },
+  {
+    label: 'Broncodilatadores SABA / Rescate (Salbutamol LBM MINSA)',
+    note: 'Broncodilatador inhalado equivalente',
+    terms: ['salbutamol', 'albuterol', 'fenoterol', 'ipratropio', 'bromuro de ipratropio'],
+  },
+  {
+    label: 'Antieméticos / Procinéticos',
+    note: 'Antiemético equivalente (Metoclopramida LBM MINSA / Ondansetrón / Dimenhidrinato)',
+    terms: ['metoclopramida', 'ondansetron', 'domperidona', 'dimenhidrinato'],
+  },
+  {
+    label: 'Antiespasmódicos (Butilhioscina / Hioscina)',
+    note: 'Antiespasmódico equivalente',
+    terms: ['hioscina', 'butilhioscina', 'butilbromuro', 'trimebutina', 'pinaverio'],
+  },
+  {
+    label: 'Antimicrobianos IVU Baja / Cistitis (MINSA + IDSA)',
+    note: 'Esquema válido para IVU no complicada (Nitrofurantoína, TMP/SMX, Fosfomicina o Cefalexina)',
+    terms: ['nitrofurantoina', 'fosfomicina', 'trimetoprim', 'sulfametoxazol', 'cotrimoxazol', 'tmp smx', 'tmp', 'smx', 'bactrim', 'cefalexina', 'cefadroxilo'],
+    onlyIfDiag: /cistitis|urinaria|ivu|itu/,
+  },
+  {
+    label: 'Trimetoprim / Sulfametoxazol (TMP-SMX / Cotrimoxazol)',
+    note: 'Misma combinación antimicrobiana',
+    terms: ['trimetoprim', 'sulfametoxazol', 'cotrimoxazol', 'tmp', 'smx'],
+  },
+  {
+    label: 'Antiestafilocócico / Piel y Partes Blandas (Dicloxacilina / Cefalexina MINSA)',
+    note: 'Cobertura grampositiva equivalente (Dicloxacilina, Cefalexina, Clindamicina o Amoxicilina/Clavulanato)',
+    terms: ['dicloxacilina', 'cefalexina', 'cefadroxilo', 'clindamicina', 'amoxiclav', 'amoxicilina'],
+    onlyIfDiag: /impetigo|celulitis|erisipela|piel|absceso|foliculitis/,
+  },
+  {
+    label: 'Antimicrobiano Faringoamigdalitis Estreptocócica (Penicilina Benzatínica MINSA / Amoxicilina)',
+    note: 'Penicilina G benzatínica IM o Amoxicilina VO como primera línea equivalente (MINSA / IDSA)',
+    terms: ['penicilina benzatinica', 'penicilina g', 'amoxicilina', 'azitromicina', 'claritromicina', 'cefalexina', 'clindamicina'],
+    onlyIfDiag: /faringoamigdalitis|amigdalitis|estreptococ/,
+  },
+  {
+    label: 'Cefalosporina de 3.ª Generación Parenteral (Ceftriaxona / Cefotaxima)',
+    note: 'Cefalosporina 3.ª gen equivalente para meningitis, sepsis o pielonefritis',
+    terms: ['ceftriaxona', 'cefotaxima'],
+  },
+  {
+    label: 'Macrólidos Respiratorios',
+    note: 'Macrólido equivalente (Azitromicina / Claritromicina / Eritromicina)',
+    terms: ['azitromicina', 'claritromicina', 'eritromicina'],
+  },
+  {
+    label: 'Antivirales Antiherpéticos (Aciclovir LBM MINSA / Valaciclovir)',
+    note: 'Aciclovir oral/IV (LBM MINSA) equivalente a Valaciclovir/Famciclovir',
+    terms: ['aciclovir', 'valaciclovir', 'famciclovir'],
+  },
+  {
+    label: 'Antimicóticos Tópicos / Sistémicos Azólicos o Alilaminas',
+    note: 'Antimicótico válido según vía (Clotrimazol, Fluconazol, Miconazol, Terbinafina, Ketoconazol)',
+    terms: ['clotrimazol', 'fluconazol', 'miconazol', 'ketoconazol', 'terbinafina', 'itraconazol', 'nistatina'],
+  },
+  {
+    label: 'Nitroimidazoles (Metronidazol LBM MINSA)',
+    note: 'Nitroimidazol equivalente',
+    terms: ['metronidazol', 'tinidazol', 'secnidazol'],
+  },
+  {
+    label: 'Antihipertensivos en Preeclampsia / Obstetricia (Normativa MINSA)',
+    note: 'Antihipertensivo seguro en embarazo/preeclampsia (Hidralazina, Labetalol, Nifedipino, Alfametildopa)',
+    terms: ['labetalol', 'hidralazina', 'nifedipino', 'alfametildopa', 'metildopa'],
+    onlyIfDiag: /preeclampsia|eclampsia|embarazo|gestacional/,
+  },
+  {
+    label: 'Sulfato de Magnesio (MgSO4)',
+    note: 'Neuroprotección y profilaxis de eclampsia',
+    terms: ['sulfato de magnesio', 'mgso4', 'magnesio'],
+  },
+  {
+    label: 'Antiepilépticos (Fenitoína DFH LBM MINSA / Levetiracetam)',
+    note: 'Anticomicial equivalente (respetando restricción teratogénica de Valproato en mujer fértil)',
+    terms: ['fenitoina', 'dfh', 'difenilhidantoina', 'levetiracetam', 'carbamazepina', 'lamotrigina'],
+  },
+  {
+    label: 'Suplementación de Hierro (Sulfato Ferroso LBM MINSA)',
+    note: 'Sal ferrosa oral equivalente',
+    terms: ['sulfato ferroso', 'hierro polimaltosado', 'fumarato ferroso', 'gluconato ferroso', 'hierro'],
+  },
+  {
+    label: 'Vitamina B12 / Complejo B Neurotrópico',
+    note: 'Cobalamina equivalente (Cianocobalamina / Hidroxicobalamina / Complejo B)',
+    terms: ['cianocobalamina', 'hidroxicobalamina', 'vitamina b12', 'b12', 'complejo b'],
+  },
+  {
+    label: 'Vitamina D (Colecalciferol / Ergocalciferol)',
+    note: 'Suplemento de Vitamina D equivalente',
+    terms: ['vitamina d', 'colecalciferol', 'ergocalciferol', 'calcitriol'],
+  },
+  {
+    label: 'ISRS Primera Línea (Fluoxetina / Sertralina LBM MINSA)',
+    note: 'Inhibidor selectivo de recaptación de serotonina equivalente',
+    terms: ['sertralina', 'fluoxetina', 'escitalopram', 'paroxetina', 'citalopram'],
+  },
+  {
+    label: 'Aminosalicilatos 5-ASA (Sulfasalazina LBM MINSA / Mesalazina)',
+    note: 'Sulfasalazina disponible en LBM MINSA como equivalente de 5-ASA a Mesalazina en colitis ulcerosa',
+    terms: ['mesalazina', 'sulfasalazina', '5 asa', 'asacol'],
+  },
+  {
+    label: 'Anticoagulación Oral en Fibrilación Auricular (Warfarina LBM MINSA / ACOD)',
+    note: 'Warfarina ajustada por INR (LBM MINSA) y anticoagulantes directos (Apixabán/Rivaroxabán) aceptados según disponibilidad',
+    terms: ['apixaban', 'rivaroxaban', 'dabigatran', 'edoxaban', 'warfarina', 'acenocumarol'],
+    onlyIfDiag: /fibrilacion auricular/,
+  },
+  {
+    label: 'Broncodilatadores de Mantenimiento LAMA / LABA en EPOC',
+    note: 'Anticolinérgico (Ipratropio LBM MINSA / Tiotropio) o LABA aceptado en mantenimiento de EPOC',
+    terms: [
+      'tiotropio',
+      'ipratropio',
+      'bromuro de ipratropio',
+      'salmeterol',
+      'formoterol',
+      'indacaterol',
+      'vilanterol',
+      'umeclidinio',
+      'olodaterol',
+      'glicopirronio',
+    ],
+    onlyIfDiag: /epoc|obstructiva cronica/,
+  },
+  {
+    label: 'Neuromoduladores de Dolor Neuropático (MINSA / Internacional)',
+    note: 'Gabapentina, Pregabalina, Amitriptilina o Carbamazepina (evitar Carbamazepina si historia de alergia/SSJ)',
+    terms: ['pregabalina', 'gabapentina', 'amitriptilina', 'carbamazepina', 'duloxetina'],
+    onlyIfDiag: /radiculopatia|neuropat|zoster|tunel/,
+  },
 ];
 
-function matchesOptimalDrug(userRxText: string, expectedDrugLabel: string): boolean {
+function matchesOptimalDrug(
+  userRxText: string,
+  expectedDrugLabel: string,
+  diagNorm = ''
+): { matched: boolean; equivalentNote?: string } {
   const normExpected = normStr(expectedDrugLabel);
-  if (!userRxText || !normExpected) return false;
+  if (!userRxText || !normExpected) return { matched: false };
 
-  // Coincidencia directa por sinónimos farmacológicos equivalentes
-  for (const group of DRUG_SYNONYM_GROUPS) {
-    const expInGroup = group.some((syn) => normExpected.includes(syn));
-    const userInGroup = group.some((syn) => userRxText.includes(syn));
-    if (expInGroup && userInGroup) return true;
+  // 1. Coincidencia directa por tokens del fármaco esperado
+  const directTokens = significantTokens(normExpected);
+  if (directTokens.length > 0) {
+    const directHits = directTokens.filter((tk) => {
+      const stem = tk.slice(0, Math.max(4, tk.length - 1));
+      return userRxText.includes(tk) || userRxText.includes(stem);
+    }).length;
+    if (directHits / directTokens.length >= 0.55) {
+      return { matched: true };
+    }
   }
 
-  // Extraer alternativas separadas por " o ", "/", "+" o paréntesis
+  // 2. Equivalencia terapéutica (MINSA Nicaragua LBM + Guías Internacionales)
+  for (const group of THERAPEUTIC_EQUIVALENCE_GROUPS) {
+    if (group.excludeIfDiag && diagNorm && group.excludeIfDiag.test(diagNorm)) continue;
+    if (group.onlyIfDiag && diagNorm && !group.onlyIfDiag.test(diagNorm)) continue;
+
+    const expInGroup = group.terms.some((syn) => hasClinicalTerm(normExpected, syn));
+    const matchedUserTerm = group.terms.find((syn) => hasClinicalTerm(userRxText, syn));
+    if (expInGroup && matchedUserTerm) {
+      return {
+        matched: true,
+        equivalentNote: `${group.label}: se validó "${matchedUserTerm}" como equivalente a "${expectedDrugLabel}" (${group.note}).`,
+      };
+    }
+  }
+
+  // 3. Alternativas separadas por " o ", "/", "+" o paréntesis en la solución óptima
   const alternatives = normExpected
     .split(/\s+(?:o|y)\s+|[,/+()]/)
     .map((part) => part.trim())
@@ -267,11 +947,11 @@ function matchesOptimalDrug(userRxText: string, expectedDrugLabel: string): bool
         const stem = tk.slice(0, Math.max(4, tk.length - 1));
         return userRxText.includes(tk) || userRxText.includes(stem);
       }).length;
-      if (hits / tokens.length >= 0.5) return true;
+      if (hits / tokens.length >= 0.5) return { matched: true };
     }
   }
 
-  return tokenMatchRatio(userRxText, expectedDrugLabel) >= 0.4;
+  return { matched: tokenMatchRatio(userRxText, expectedDrugLabel) >= 0.45 };
 }
 
 function analyzeAnamnesisPillars(questions: string[] = []) {
@@ -279,27 +959,27 @@ function analyzeAnamnesisPillars(questions: string[] = []) {
   return [
     {
       label: 'Inicio, duración y cronología (o evolución del día previo)',
-      hit: /cuando|desde|hora|dia anterior|ayer|anoche|empezo|inicio|evolucion|cuanto tiempo|subito/.test(joined),
+      hit: /cuando|desde|hora|dia anterior|ayer|anoche|empezo|inicio|evolucion|cuanto tiempo|subito|hace cuanto|cuantos dias|principio/.test(joined),
     },
     {
       label: 'Localización, irradiación e intensidad del síntoma principal',
-      hit: /donde|duele|dolor|irradia|corre|intensidad|fuerte|siente|caracteristica|molestia/.test(joined),
+      hit: /donde|duele|dolor|irradia|corre|intensidad|fuerte|siente|caracteristica|molestia|ardor|escala|tipo de|opresivo|punzante|pulsatil/.test(joined),
     },
     {
       label: 'Síntomas asociados y signos de alarma (fiebre, vómitos, disnea, sangrado)',
-      hit: /fiebre|calentura|vomit|nausea|aire|respir|sangr|mareo|orina|diarrea|cabeza|mancha/.test(joined),
+      hit: /fiebre|calentura|escalofrio|vomit|basca|nausea|aire|ahog|respir|sangr|mareo|orina|ardor al orinar|diarrea|churria|cabeza|mancha|roncha|picazon|prurito|hinchazon|vision|desmayo/.test(joined),
     },
     {
       label: 'Antecedentes patológicos, quirúrgicos y familiares',
-      hit: /enfermedad|hipertension|diabetes|antecedente|operad|cirugia|familia|padece|sufre/.test(joined),
+      hit: /enfermedad|hipertension|presion|diabetes|azucar|antecedente|operad|cirugia|familia|padece|sufre|asma|rinon|corazon|cronica/.test(joined),
     },
     {
       label: 'Medicamentos actuales y alergias conocidas',
-      hit: /medicament|pastilla|toma|tomo|remedio|alergi|penicilina|insulina/.test(joined),
+      hit: /medicament|pastilla|toma|tomo|remedio|alergi|penicilina|insulina|tratamiento|inyect|receta/.test(joined),
     },
     {
       label: 'Hábitos, exposición epidemiológica o historia sexual/ginecológica',
-      hit: /fuma|alcohol|viaj|zancudo|sexo|sexual|regla|menstrua|embaraz|pareja|trabajo|vive|comio/.test(joined),
+      hit: /fuma|alcohol|licor|viaj|zancudo|mosquito|agua|sexo|sexual|regla|menstrua|ultima regla|fum\b|embaraz|pareja|trabajo|ocupacion|vive|comio/.test(joined),
     },
   ];
 }
@@ -312,7 +992,12 @@ export function buildDidacticEvaluation(
   const qCount = submission.questionCount || 0;
   const doctorQuestions = submission.doctorQuestions || [];
 
-  // 1. ANAMNESIS (0 a 15 pts) — Cero preguntas = 0 puntos
+  const diagNormCore = normStr(solution.correctDiagnosis || '');
+  const isFocusedPrimaryCase =
+    isSimplePrimaryWorkupCase(diagNormCore) || caseData.mode === 'principiante';
+  const recognizedEquivalents: string[] = [];
+
+  // 1. ANAMNESIS (0 a 15 pts) — Cero preguntas = 0 puntos; adaptada a complejidad del cuadro
   const pillars = analyzeAnamnesisPillars(doctorQuestions);
   const coveredPillars = pillars.filter((p) => p.hit).map((p) => p.label);
   const missedPillars = pillars.filter((p) => !p.hit).map((p) => p.label);
@@ -322,15 +1007,22 @@ export function buildDidacticEvaluation(
     anamScore = 0;
   } else if (doctorQuestions.length > 0) {
     if (coveredPillars.length === 0) {
-      anamScore = 1; // Preguntas superficiales o fuera de tema clínico
-    } else {
+      anamScore = 1;
+    } else if (isFocusedPrimaryCase) {
+      // En primer nivel o casos simples, un interrogatorio dirigido de 4 pilares y 3-4 preguntas alcanza 14-15 pts
       anamScore = Math.min(
         15,
-        Math.round(coveredPillars.length * 2.15 + Math.min(qCount, 6) * 0.35)
+        Math.round((Math.min(coveredPillars.length, 4) / 4) * 13 + Math.min(qCount, 4) * 0.5)
+      );
+    } else {
+      // En casos complejos/urgencias, 5 pilares cubiertos + >=5 preguntas alcanza 15/15
+      anamScore = Math.min(
+        15,
+        Math.round((Math.min(coveredPillars.length, 5) / 5) * 13 + Math.min(qCount, 5) * 0.4)
       );
     }
   } else {
-    anamScore = Math.min(15, Math.round(qCount * 1.8));
+    anamScore = Math.min(15, Math.round(qCount * 2.2));
   }
 
   const anamDetail: RubricCategoryDetail = {
@@ -339,7 +1031,9 @@ export function buildDidacticEvaluation(
         ? 'Obtuviste 0/15 porque no realizaste ninguna pregunta al paciente durante la anamnesis.'
         : coveredPillars.length === 0 && doctorQuestions.length > 0
           ? `Realizaste ${qCount} intervención(es), pero ninguna exploró los pilares semiológicos del caso (${anamScore}/15 pts).`
-          : `Realizaste ${qCount} pregunta(s) cubriendo ${coveredPillars.length} de 6 pilares semiológicos esenciales (${anamScore}/15 pts).`,
+          : isFocusedPrimaryCase
+            ? `Realizaste ${qCount} pregunta(s) focalizadas cubriendo ${coveredPillars.length} pilares semiológicos en un motivo de atención primaria (${anamScore}/15 pts).`
+            : `Realizaste ${qCount} pregunta(s) cubriendo ${coveredPillars.length} de 6 pilares semiológicos (${anamScore}/15 pts).`,
     strengths:
       coveredPillars.length > 0
         ? coveredPillars.map((c) => `Exploraste: ${c}`)
@@ -347,29 +1041,36 @@ export function buildDidacticEvaluation(
           ? ['Iniciaste diálogo con el paciente, aunque faltó profundidad clínica.']
           : ['No se registraron preguntas en el interrogatorio clínico.'],
     missingOrImprove:
-      missedPillars.length > 0
+      missedPillars.length > 0 && !(isFocusedPrimaryCase && coveredPillars.length >= 4)
         ? missedPillars.map((m) => `Faltó interrogar sobre: ${m}`)
-        : ['Interrogatorio muy completo; mantén siempre la verificación cronológica y de signos de alarma.'],
-    expectedStandard:
-      'Una anamnesis excelente (14-15 pts) indaga cronología exacta, semiología del síntoma, signos de alarma, antecedentes/alergias, fármacos previos y contexto epidemiológico o sexual.',
+        : ['Interrogatorio clínico oportuno y bien focalizado según la complejidad del caso.'],
+    expectedStandard: isFocusedPrimaryCase
+      ? 'En consulta general focalizada (14-15 pts) basta explorar cronología, características del síntoma, signos de alarma y antecedentes/alergias.'
+      : 'Una anamnesis completa (14-15 pts) indaga cronología exacta, semiología del síntoma, signos de alarma, antecedentes/alergias y contexto epidemiológico o fármacos.',
   };
 
-  // 2. EXPLORACIÓN FÍSICA (0 a 15 pts) — Cero maniobras = 0 pts; penalización por "Explorar Todo" indiscriminado
+  // 2. EXPLORACIÓN FÍSICA (0 a 15 pts) — Separar maniobras nativas del caso vs sincronización general del catálogo
   const unlockedExamIds = new Set(submission.unlockedExams || []);
   const allExams = caseData.physicalExamPool || [];
-  const abnormalExams = allExams.filter((pe) => pe.isAbnormal);
+  const allAbnormalExams = allExams.filter((pe) => pe.isAbnormal);
+  const nativeAbnormalExams = allAbnormalExams.filter((pe) => !pe.id.startsWith('std-pe-'));
+  const abnormalExams = nativeAbnormalExams.length > 0 ? nativeAbnormalExams : allAbnormalExams;
   const foundAbnormalExams = abnormalExams.filter((pe) => unlockedExamIds.has(pe.id));
   const missedAbnormalExams = abnormalExams.filter((pe) => !unlockedExamIds.has(pe.id));
   const totalUnlockedExams = allExams.filter((pe) => unlockedExamIds.has(pe.id));
   const exploredAllBlindly =
     allExams.length >= 10 && totalUnlockedExams.length >= allExams.length - 1;
 
+  const nativeExams = allExams.filter((pe) => !pe.id.startsWith('std-pe-'));
+  const foundNativeExams = nativeExams.filter((pe) => unlockedExamIds.has(pe.id));
+  const missedNativeExams = nativeExams.filter((pe) => !unlockedExamIds.has(pe.id));
+
   let examScore = 0;
   if (totalUnlockedExams.length === 0) {
     examScore = 0;
   } else if (abnormalExams.length > 0) {
     if (foundAbnormalExams.length === 0) {
-      examScore = Math.min(3, totalUnlockedExams.length); // Solo maniobras normales, falló los signos positivos
+      examScore = Math.min(4, totalUnlockedExams.length + 1);
     } else {
       const recallRatio = foundAbnormalExams.length / abnormalExams.length;
       const selectiveBonus = !exploredAllBlindly && totalUnlockedExams.length >= 2 ? 2 : 0;
@@ -379,8 +1080,21 @@ export function buildDidacticEvaluation(
         Math.max(1, Math.round(recallRatio * 13) + selectiveBonus - shotgunPenalty)
       );
     }
+  } else if (nativeExams.length > 0) {
+    // Cuadro con examen físico sin hallazgos alterados (negativos pertinentes clave)
+    const shotgunPenalty = exploredAllBlindly ? 3 : 0;
+    if (foundNativeExams.length === 0) {
+      examScore = Math.max(1, Math.min(5, totalUnlockedExams.length + 1) - shotgunPenalty);
+    } else {
+      const nativeRecall = foundNativeExams.length / nativeExams.length;
+      const selectiveBonus = !exploredAllBlindly ? 1 : 0;
+      examScore = Math.min(
+        15,
+        Math.max(1, Math.round(nativeRecall * 14) + selectiveBonus - shotgunPenalty)
+      );
+    }
   } else {
-    examScore = Math.min(15, totalUnlockedExams.length * 3);
+    examScore = Math.max(1, Math.min(15, totalUnlockedExams.length * 4) - (exploredAllBlindly ? 3 : 0));
   }
 
   const examDetail: RubricCategoryDetail = {
@@ -389,124 +1103,249 @@ export function buildDidacticEvaluation(
         ? 'Obtuviste 0/15 porque no realizaste ninguna maniobra de exploración física al paciente.'
         : exploredAllBlindly
           ? `Desbloqueaste casi todo el catálogo físico (${totalUnlockedExams.length}/${allExams.length}) de forma indiscriminada; se aplicó ajuste por falta de priorización dirigida (${examScore}/15 pts).`
-          : `Ejecutaste ${totalUnlockedExams.length} maniobra(s) dirigida(s) y detectaste ${foundAbnormalExams.length} de ${abnormalExams.length} hallazgo(s) alterados clave (${examScore}/15 pts).`,
+          : abnormalExams.length > 0
+            ? `Ejecutaste ${totalUnlockedExams.length} maniobra(s) dirigida(s) y detectaste ${foundAbnormalExams.length} de ${abnormalExams.length} hallazgo(s) alterados clave del cuadro (${examScore}/15 pts).`
+            : nativeExams.length > 0
+              ? `Ejecutaste ${totalUnlockedExams.length} maniobra(s) dirigida(s) y verificaste ${foundNativeExams.length} de ${nativeExams.length} maniobra(s) clave de descarte (negativos pertinentes) (${examScore}/15 pts).`
+              : `Ejecutaste ${totalUnlockedExams.length} maniobra(s) de exploración física dirigida (${examScore}/15 pts).`,
     strengths:
       foundAbnormalExams.length > 0
         ? foundAbnormalExams.map((e) => `Hallazgo clave detectado: ${e.name}`)
-        : totalUnlockedExams.length > 0
-          ? [`Realizaste ${totalUnlockedExams.length} maniobra(s), aunque todas resultaron normales.`]
-          : ['No se ejecutaron maniobras de exploración física.'],
+        : abnormalExams.length === 0 && foundNativeExams.length > 0
+          ? foundNativeExams.map((e) => `Negativo pertinente confirmado: ${e.name}`)
+          : totalUnlockedExams.length > 0
+            ? [`Realizaste ${totalUnlockedExams.length} maniobra(s), aunque faltaron las maniobras clave del caso.`]
+            : ['No se ejecutaron maniobras de exploración física.'],
     missingOrImprove: [
-      ...missedAbnormalExams.map((e) => `Maniobra clave omitida: ${e.name} (${e.system})`),
+      ...(abnormalExams.length > 0
+        ? missedAbnormalExams.map((e) => `Maniobra clave omitida: ${e.name} (${e.system})`)
+        : missedNativeExams.map((e) => `Maniobra de descarte sugerida: ${e.name} (${e.system})`)),
       ...(exploredAllBlindly
         ? ['Evita pulsar "Explorar Todo" sin criterio; prioriza primero los sistemas comprometidos por la anamnesis (-3 pts).']
         : []),
     ],
     expectedStandard:
-      'Se evalúa priorizar maniobras dirigidas a los sistemas sospechosos para detectar los signos positivos sin realizar exploración indiscriminada.',
+      abnormalExams.length > 0
+        ? 'Se evalúa priorizar maniobras dirigidas a los sistemas sospechosos para detectar los signos positivos sin realizar exploración indiscriminada.'
+        : 'En cuadros con exploración física normal, se evalúa confirmar los negativos pertinentes de los sistemas clave sin exploración indiscriminada.',
   };
   if (examDetail.missingOrImprove.length === 0) {
     examDetail.missingOrImprove.push('Exploración física dirigida sobresaliente: captaste todos los signos clave.');
   }
 
-  // 3. SELECCIÓN E INTERPRETACIÓN DE ESTUDIOS (0 a 15 pts) — Cero estudios = 0 pts; penalización por batería ciega
+  // 3. SELECCIÓN E INTERPRETACIÓN DE ESTUDIOS (0 a 15 pts) — Separar estudios confirmatorios del caso vs hallazgos secundarios del catálogo
   const unlockedStudyIds = new Set(submission.unlockedStudies || []);
   const allStudies = caseData.studiesPool || [];
-  const abnormalStudies = allStudies.filter((st) => st.isAbnormal);
-  const foundAbnormalStudies = abnormalStudies.filter((st) => unlockedStudyIds.has(st.id));
-  const missedAbnormalStudies = abnormalStudies.filter((st) => !unlockedStudyIds.has(st.id));
+  const nativeStudies = allStudies.filter((st) => !st.id.startsWith('hosp-'));
+  const foundNativeStudies = nativeStudies.filter((st) => unlockedStudyIds.has(st.id));
+  const missedNativeStudies = nativeStudies.filter((st) => !unlockedStudyIds.has(st.id));
+  const allAbnormalStudies = allStudies.filter((st) => st.isAbnormal);
+  const nativeAbnormalStudies = allAbnormalStudies.filter((st) => !st.id.startsWith('hosp-'));
+  const workupNorm = normStr((solution.recommendedWorkup || []).join(' '));
+  const workupMatchedStudies = allAbnormalStudies.filter(
+    (st) => workupNorm && tokenMatchRatio(workupNorm, st.name) >= 0.45
+  );
+  const coreAbnormalStudies =
+    nativeAbnormalStudies.length > 0
+      ? nativeAbnormalStudies
+      : nativeStudies.length > 0
+        ? []
+        : workupMatchedStudies.length > 0
+          ? workupMatchedStudies
+          : allAbnormalStudies.slice(0, 3);
+
+  const foundCoreStudies = coreAbnormalStudies.filter((st) => unlockedStudyIds.has(st.id));
+  const missedCoreStudies = coreAbnormalStudies.filter((st) => !unlockedStudyIds.has(st.id));
+  const foundAllAbnormalStudies = allAbnormalStudies.filter((st) => unlockedStudyIds.has(st.id));
+  const secondaryAbnormalHits = foundAllAbnormalStudies.filter(
+    (st) => !coreAbnormalStudies.some((c) => c.id === st.id)
+  );
   const totalUnlockedStudies = allStudies.filter((st) => unlockedStudyIds.has(st.id));
   const orderedAllBlindly =
     allStudies.length >= 12 && totalUnlockedStudies.length >= allStudies.length - 2;
-  const unnecessaryCount = Math.max(0, totalUnlockedStudies.length - foundAbnormalStudies.length - 3);
+  const relevantHitCount =
+    coreAbnormalStudies.length > 0 ? foundAllAbnormalStudies.length : foundNativeStudies.length;
+  const unnecessaryCount = Math.max(0, totalUnlockedStudies.length - relevantHitCount - 4);
+
+  const diagNormForStudies = normStr(solution.correctDiagnosis || '');
+  const preDiagMatchRatio = (submission.primaryDiagnosis || '').trim()
+    ? computeClinicalDiagnosisMatch(submission.primaryDiagnosis || '', solution.correctDiagnosis || '').ratio
+    : 0;
+  const highCostUnneededStudies = isSimplePrimaryWorkupCase(diagNormForStudies)
+    ? totalUnlockedStudies.filter(
+        (s) =>
+          !s.isAbnormal &&
+          /\b(tomografia|tac |resonancia|rmn|endoscopia|colonoscopia|broncoscopia)\b/.test(
+            normStr(s.name)
+          )
+      )
+    : [];
+
+  const isPureClinicalStewardshipCase =
+    coreAbnormalStudies.length === 0 &&
+    (isSimplePrimaryWorkupCase(diagNormForStudies) ||
+      nativeStudies.length === 0 ||
+      nativeStudies.every((s) => !s.isAbnormal));
 
   let studyScore = 0;
   if (totalUnlockedStudies.length === 0) {
-    studyScore = 0;
-  } else if (abnormalStudies.length > 0) {
-    if (foundAbnormalStudies.length === 0) {
-      studyScore = Math.min(3, totalUnlockedStudies.length);
+    if (isPureClinicalStewardshipCase && preDiagMatchRatio >= 0.45) {
+      // Diagnóstico clínico puro donde evitar paraclínicos innecesarios es buena práctica clínica
+      studyScore = 13;
     } else {
-      const ratio = foundAbnormalStudies.length / abnormalStudies.length;
-      const excessPenalty = orderedAllBlindly ? 4 : Math.min(4, Math.floor(unnecessaryCount / 3));
+      studyScore = 0;
+    }
+  } else if (coreAbnormalStudies.length > 0) {
+    const excessPenalty = orderedAllBlindly ? 4 : Math.min(3, Math.floor(unnecessaryCount / 3));
+    const highCostPenalty = highCostUnneededStudies.length > 0 ? Math.min(2, highCostUnneededStudies.length) : 0;
+
+    if (foundCoreStudies.length === 0 && secondaryAbnormalHits.length === 0) {
+      studyScore = Math.min(4, totalUnlockedStudies.length + 1);
+    } else if (foundCoreStudies.length === 0) {
+      studyScore = Math.max(1, Math.min(10, 5 + secondaryAbnormalHits.length * 2) - excessPenalty - highCostPenalty);
+    } else {
+      const ratio = foundCoreStudies.length / coreAbnormalStudies.length;
+      const bonusFromTargetedSecondary =
+        !orderedAllBlindly && secondaryAbnormalHits.length > 0 ? 1 : 0;
       studyScore = Math.min(
         15,
-        Math.max(1, Math.round(ratio * 14 + 1) - excessPenalty)
+        Math.max(1, Math.round(ratio * 14 + 1) + bonusFromTargetedSecondary - excessPenalty - highCostPenalty)
       );
     }
   } else {
-    studyScore = Math.min(15, totalUnlockedStudies.length * 3);
+    // Casos donde los estudios propios del caso son negativos pertinentes de descarte o el diagnóstico es puramente clínico
+    const excessPenalty = orderedAllBlindly ? 4 : Math.min(3, Math.floor(unnecessaryCount / 3));
+    const highCostPenalty = highCostUnneededStudies.length > 0 ? Math.min(2, highCostUnneededStudies.length) : 0;
+    if (nativeStudies.length > 0) {
+      if (foundNativeStudies.length > 0) {
+        const nativeRatio = foundNativeStudies.length / nativeStudies.length;
+        const targetedBonus = !orderedAllBlindly ? 1 : 0;
+        studyScore = Math.max(
+          1,
+          Math.min(15, Math.round(nativeRatio * 14) + targetedBonus - excessPenalty - highCostPenalty)
+        );
+      } else {
+        studyScore = Math.max(
+          1,
+          Math.min(10, 4 + totalUnlockedStudies.length * 2) - excessPenalty - highCostPenalty
+        );
+      }
+    } else {
+      studyScore = Math.max(
+        1,
+        Math.min(13, totalUnlockedStudies.length * 3) - excessPenalty - highCostPenalty
+      );
+    }
   }
+
+  const workupStewardshipNote =
+    totalUnlockedStudies.length === 0
+      ? studyScore >= 12
+        ? 'Uso racional excelente: abordaste un diagnóstico clínico sin indicar estudios paraclínicos innecesarios.'
+        : 'No se solicitaron estudios complementarios.'
+      : highCostUnneededStudies.length > 0
+        ? `Uso racional de recursos: solicitaste estudio de alta complejidad/irradiación no indicado inicialmente en primer nivel (${highCostUnneededStudies.map((s) => s.name).join(', ')}).`
+        : orderedAllBlindly || unnecessaryCount >= 4
+          ? 'Se detectó solicitud excesiva de estudios ("escopetazo diagnóstico") sin discriminación clínica pre-test.'
+          : 'Selección racional de estudios sin sobreutilización de imagen avanzada o pruebas innecesarias.';
 
   const studyDetail: RubricCategoryDetail = {
     whyScore:
       totalUnlockedStudies.length === 0
-        ? 'Obtuviste 0/15 porque no solicitaste ningún estudio de laboratorio, imagen o gabinete.'
+        ? studyScore >= 12
+          ? `Abordaje clínico racional en un diagnóstico de resolución clínica sin paraclínicos obligatorios (${studyScore}/15 pts).`
+          : 'Obtuviste 0/15 porque no solicitaste ningún estudio de laboratorio, imagen o gabinete.'
         : orderedAllBlindly
-          ? `Solicitaste prácticamente toda la batería hospitalaria (${totalUnlockedStudies.length}/${allStudies.length}) sin discriminación pre-test, recibiendo penalización por uso excesivo de recursos e irradiación (${studyScore}/15 pts).`
-          : `Solicitaste ${totalUnlockedStudies.length} estudio(s) y acertaste en ${foundAbnormalStudies.length} de ${abnormalStudies.length} paraclínicos con alteraciones relevantes (${studyScore}/15 pts).`,
+          ? `Solicitaste prácticamente toda la batería hospitalaria (${totalUnlockedStudies.length}/${allStudies.length}) sin discriminación pre-test, recibiendo penalización por uso excesivo de recursos (${studyScore}/15 pts).`
+          : coreAbnormalStudies.length > 0
+            ? `Solicitaste ${totalUnlockedStudies.length} estudio(s), acertando en ${foundCoreStudies.length} de ${coreAbnormalStudies.length} prueba(s) confirmatorias clave${secondaryAbnormalHits.length > 0 ? ` (+${secondaryAbnormalHits.length} estudio(s) complementario(s) útil(es))` : ''} (${studyScore}/15 pts).`
+            : nativeStudies.length > 0
+              ? `Solicitaste ${totalUnlockedStudies.length} estudio(s) e incluiste ${foundNativeStudies.length} de ${nativeStudies.length} estudio(s) pertinentes de descarte del cuadro (${studyScore}/15 pts).`
+              : `Solicitaste ${totalUnlockedStudies.length} estudio(s) de apoyo clínico en un cuadro esencialmente clínico (${studyScore}/15 pts).`,
     strengths:
-      foundAbnormalStudies.length > 0
-        ? foundAbnormalStudies.map((s) => `Estudio pertinente solicitado: ${s.name}`)
-        : totalUnlockedStudies.length > 0
-          ? [`Solicitaste ${totalUnlockedStudies.length} estudio(s), pero ninguno detectó las alteraciones clave del cuadro.`]
-          : ['No se solicitaron estudios complementarios.'],
+      foundAllAbnormalStudies.length > 0
+        ? foundAllAbnormalStudies.slice(0, 6).map((s) => `Estudio pertinente solicitado: ${s.name}`)
+        : coreAbnormalStudies.length === 0 && foundNativeStudies.length > 0
+          ? foundNativeStudies.slice(0, 6).map((s) => `Estudio de descarte pertinente (negativo clave): ${s.name}`)
+          : totalUnlockedStudies.length === 0 && studyScore >= 12
+            ? ['Evitaste sobreestudio innecesario en un cuadro de diagnóstico primordialmente clínico.']
+            : totalUnlockedStudies.length > 0
+              ? [`Solicitaste ${totalUnlockedStudies.length} estudio(s), aunque faltaron los confirmatorios clave.`]
+              : ['No se solicitaron estudios complementarios.'],
     missingOrImprove: [
-      ...missedAbnormalStudies.slice(0, 5).map((s) => `Faltó solicitar estudio con hallazgo clave: ${s.name}`),
+      ...(coreAbnormalStudies.length > 0
+        ? missedCoreStudies.slice(0, 5).map((s) => `Faltó solicitar estudio confirmatorio clave: ${s.name}`)
+        : totalUnlockedStudies.length > 0
+          ? missedNativeStudies.slice(0, 4).map((s) => `Estudio de descarte pertinente del caso: ${s.name}`)
+          : []),
+      ...(highCostUnneededStudies.length > 0
+        ? [
+            `Uso racional (MINSA / 1.er nivel): evita solicitar ${highCostUnneededStudies.map((s) => s.name).join(', ')} de entrada en un cuadro ambulatorio sin banderas rojas.`,
+          ]
+        : []),
       ...(orderedAllBlindly || unnecessaryCount >= 4
-        ? ['Se solicitaron estudios innecesarios o irradiantes sin justificación clínica ("escopetazo diagnóstico").']
+        ? ['Se solicitaron estudios innecesarios sin justificación clínica ("escopetazo diagnóstico").']
         : []),
     ],
     expectedStandard: `Abordaje recomendado por guías: ${(solution.recommendedWorkup || []).slice(0, 4).join(' · ') || 'Estudios dirigidos de confirmación y estratificación de gravedad.'}`,
   };
   if (studyDetail.missingOrImprove.length === 0) {
-    studyDetail.missingOrImprove.push('Excelente selección racional de estudios confirmatorios y de gravedad.');
+    studyDetail.missingOrImprove.push('Excelente selección racional de estudios confirmatorios sin sobreutilización.');
   }
 
-  // 4. DIAGNÓSTICO PRINCIPAL Y RAZONAMIENTO (0 a 25 pts) — Vacío o irrelevante = 0-2 pts
+  // 4. DIAGNÓSTICO PRINCIPAL Y RAZONAMIENTO (0 a 25 pts) — Con sinónimos y siglas nacionales/internacionales
   const userDiag = submission.primaryDiagnosis || '';
   const correctDiag = solution.correctDiagnosis || '';
-  const diagMatchRatio = tokenMatchRatio(userDiag, correctDiag);
+  const diagMatchResult = computeClinicalDiagnosisMatch(userDiag, correctDiag);
+  const diagMatchRatio = diagMatchResult.ratio;
+  if (diagMatchResult.matchedSynonymLabel) {
+    recognizedEquivalents.push(
+      `Nomenclatura / sigla diagnóstica validada: "${userDiag}" ↔ "${correctDiag}" (${diagMatchResult.matchedSynonymLabel}).`
+    );
+  }
   const diffHitRatio = Math.max(
     0,
-    ...(solution.differentialDiagnoses || []).map((d) => tokenMatchRatio(userDiag, d))
+    ...(solution.differentialDiagnoses || []).map((d) => computeClinicalDiagnosisMatch(userDiag, d).ratio)
   );
   const justifLen = (submission.clinicalJustification || '').trim().length;
-  const justifBonus = justifLen >= 60 ? 2 : justifLen >= 25 ? 1 : 0;
+  const justifBonus = justifLen >= 50 ? 2 : justifLen >= 20 ? 1 : 0;
 
   let diagScore = 0;
   if (!userDiag.trim()) {
     diagScore = 0;
-  } else if (diagMatchRatio >= 0.75) {
+  } else if (diagMatchRatio >= 0.72) {
     diagScore = Math.min(25, 23 + justifBonus);
   } else if (diagMatchRatio >= 0.45) {
-    diagScore = Math.min(21, 18 + justifBonus);
+    diagScore = Math.min(22, 19 + justifBonus);
   } else if (diagMatchRatio >= 0.25 || diffHitRatio >= 0.45) {
-    diagScore = Math.min(14, 11 + justifBonus);
+    diagScore = Math.min(15, 12 + justifBonus);
   } else {
-    diagScore = justifLen >= 40 ? 2 : 0; // Diagnóstico incorrecto sin fundamento no suma puntos gratuitos
+    diagScore = justifLen >= 40 ? 2 : 0;
   }
 
   const diagDetail: RubricCategoryDetail = {
     whyScore: !userDiag.trim()
       ? 'Obtuviste 0/25 porque dejaste en blanco el diagnóstico principal.'
-      : diagMatchRatio >= 0.75
-        ? `Tu diagnóstico ("${userDiag}") coincide de forma precisa con la patología real y su clasificación (${diagScore}/25 pts).`
+      : diagMatchRatio >= 0.72
+        ? `Tu diagnóstico ("${userDiag}") coincide de forma precisa con la patología real "${correctDiag}" (${diagScore}/25 pts).`
         : diagMatchRatio >= 0.45
-          ? `Tu diagnóstico ("${userDiag}") identificó el proceso patológico central, pero faltó mayor especificidad clínica (gravedad, fase o etiología) frente a "${correctDiag}" (${diagScore}/25 pts).`
+          ? `Tu diagnóstico ("${userDiag}") identificó el proceso patológico central, aunque podía precisar mayor especificidad (gravedad o etiología) frente a "${correctDiag}" (${diagScore}/25 pts).`
           : diffHitRatio >= 0.45
             ? `Tu propuesta ("${userDiag}") corresponde a un diagnóstico diferencial cercano, pero no al diagnóstico definitivo real "${correctDiag}" (${diagScore}/25 pts).`
-            : `Tu propuesta ("${userDiag}") es incorrecta respecto al diagnóstico definitivo "${correctDiag}" (${diagScore}/25 pts).`,
+            : `Tu propuesta ("${userDiag}") no coincide con el diagnóstico definitivo "${correctDiag}" (${diagScore}/25 pts).`,
     strengths: [
       ...(diagMatchRatio >= 0.45 ? [`Aproximación clínica acertada hacia "${correctDiag}".`] : []),
-      ...(justifLen >= 40 ? ['Redactaste una justificación clínica para argumentar tu hipótesis.'] : []),
+      ...(diagMatchResult.matchedSynonymLabel
+        ? [`Se reconoció tu terminología/sigla clínica (${diagMatchResult.matchedSynonymLabel}).`]
+        : []),
+      ...(justifLen >= 25 ? ['Redactaste una justificación clínica para argumentar tu hipótesis.'] : []),
     ],
     missingOrImprove: [
-      ...(diagMatchRatio < 0.75
+      ...(diagMatchRatio < 0.72
         ? [`El diagnóstico completo esperado es: "${correctDiag}". Especifica etiología, fase clínica o signos de alarma.`]
         : []),
-      ...(justifLen < 40
-        ? ['Faltó redactar una justificación clínica que integre anamnesis, examen físico y paraclínicos.']
+      ...(justifLen < 35
+        ? ['Faltó redactar una justificación clínica breve que integre anamnesis, examen físico y paraclínicos.']
         : []),
     ],
     expectedStandard: `Diagnóstico de referencia: ${correctDiag}.`,
@@ -518,14 +1357,14 @@ export function buildDidacticEvaluation(
     diagDetail.missingOrImprove.push('Precisión diagnóstica sobresaliente y fundamentación clínica sólida.');
   }
 
-  // 5. DIAGNÓSTICOS DIFERENCIALES (0 a 10 pts) — Sin diferenciales = 0 pts
-  const userDiffs = (submission.differentialDiagnoses || []).filter((d) => d.trim().length >= 3);
+  // 5. DIAGNÓSTICOS DIFERENCIALES (0 a 10 pts)
+  const userDiffs = (submission.differentialDiagnoses || []).filter((d) => d.trim().length >= 2);
   const expectedDiffs = solution.differentialDiagnoses || [];
   const matchedDiffs: string[] = [];
   const missedDiffs: string[] = [];
 
   for (const expD of expectedDiffs) {
-    const matched = userDiffs.some((uD) => tokenMatchRatio(uD, expD) >= 0.35);
+    const matched = userDiffs.some((uD) => computeClinicalDiagnosisMatch(uD, expD).ratio >= 0.35);
     if (matched) matchedDiffs.push(expD);
     else missedDiffs.push(expD);
   }
@@ -535,7 +1374,7 @@ export function buildDidacticEvaluation(
     diffScore = 0;
   } else if (expectedDiffs.length > 0) {
     if (matchedDiffs.length === 0) {
-      diffScore = 1; // Escribió diagnósticos no pertinentes al síndrome
+      diffScore = 1;
     } else {
       diffScore = Math.min(
         10,
@@ -564,16 +1403,29 @@ export function buildDidacticEvaluation(
     expectedStandard: `Diferenciales principales esperados: ${expectedDiffs.join(' · ')}.`,
   };
 
-  // 6. TRATAMIENTO Y RÉGIMEN FARMACOLÓGICO (0 a 15 pts) — Sin fármacos ni medidas = 0 pts
+  // 6. TRATAMIENTO Y RÉGIMEN FARMACOLÓGICO (0 a 15 pts) — Normativa Nicaragüense (MINSA LBM) + Estándar Internacional
   const userRx = (submission.pharmacologicalPlan || []).filter((r) => (r.drug || '').trim().length >= 2);
   const optRx = solution.optimalTreatment?.pharmacological || [];
-  const userRxText = normStr(userRx.map((r) => `${r.drug} ${r.dose} ${r.route}`).join(' '));
+  const activeGeneralForRx = stripNegatedMedicationClauses(submission.generalMeasures || '');
+  const userRxAndMeasuresText = normStr(
+    `${userRx.map((r) => `${r.drug} ${r.dose} ${r.route}`).join(' ')} ${activeGeneralForRx}`
+  );
+  const userRxOnlyNorm = normStr(userRx.map((r) => `${r.drug} ${r.dose} ${r.route}`).join(' '));
+  const diagNormForRx = normStr(solution.correctDiagnosis || '');
+
   const matchedDrugs: string[] = [];
   const missedDrugs: string[] = [];
 
   for (const rx of optRx) {
-    if (matchesOptimalDrug(userRxText, rx.drug)) matchedDrugs.push(`${rx.drug} (${rx.dose})`);
-    else missedDrugs.push(`${rx.drug} — ${rx.dose}, ${rx.route}, ${rx.frequency} (${rx.duration})`);
+    const matchRes = matchesOptimalDrug(userRxAndMeasuresText, rx.drug, diagNormForRx);
+    if (matchRes.matched) {
+      matchedDrugs.push(`${rx.drug} (${rx.dose})`);
+      if (matchRes.equivalentNote) {
+        recognizedEquivalents.push(matchRes.equivalentNote);
+      }
+    } else {
+      missedDrugs.push(`${rx.drug} — ${rx.dose}, ${rx.route}, ${rx.frequency} (${rx.duration})`);
+    }
   }
 
   const completeRxCount = userRx.filter(
@@ -581,16 +1433,22 @@ export function buildDidacticEvaluation(
   ).length;
   const hasGeneralMeasures = (submission.generalMeasures || '').trim().length >= 15;
 
+  const requiredOptRx = optRx.filter((r) => !/\bopcional\b/i.test(`${r.drug} ${r.rationale || ''}`));
+  const denominatorRxCount = requiredOptRx.length > 0 ? requiredOptRx.length : optRx.length;
+
   let treatScore = 0;
   if (userRx.length === 0 && !hasGeneralMeasures) {
     treatScore = 0;
   } else if (optRx.length > 0) {
-    const drugRatio = matchedDrugs.length / optRx.length;
+    let drugRatio = Math.min(1, matchedDrugs.length / denominatorRxCount);
+    if (denominatorRxCount >= 3 && matchedDrugs.length >= denominatorRxCount - 1) {
+      drugRatio = Math.max(drugRatio, 0.9);
+    }
     const posologyBonus =
       matchedDrugs.length > 0 && completeRxCount > 0
-        ? completeRxCount === userRx.length
+        ? completeRxCount >= userRx.length
           ? 3
-          : 1
+          : 2
         : 0;
     const generalBonus = hasGeneralMeasures ? 2 : 0;
     const effortFloor = userRx.length > 0 && matchedDrugs.length === 0 ? 1 : 0;
@@ -600,37 +1458,197 @@ export function buildDidacticEvaluation(
   }
 
   const criticalSafetyErrors = checkCriticalSafetyErrors(submission, caseData);
+
+  // 6b. AUDITORÍA DE INTERVENCIONES STAT REALIZADAS AL PACIENTE Y EVOLUCIÓN VITAL
+  const statList = submission.statInterventions || [];
+  const baseVitals: VitalSigns = submission.baselineVitalSigns || caseData.vitalSigns;
+  const endVitals: VitalSigns = submission.finalVitalSigns || baseVitals;
+
+  const parseSys = (bp: string): number => {
+    const m = (bp || '').match(/(\d+)\s*\/\s*(\d+)/);
+    return m ? parseInt(m[1], 10) : 120;
+  };
+  const baseSys = parseSys(baseVitals.bloodPressure);
+  const endSys = parseSys(endVitals.bloodPressure);
+
+  const arrivedCriticallyUnstable =
+    baseSys < 90 ||
+    baseSys >= 180 ||
+    baseVitals.oxygenSaturation < 90 ||
+    (typeof baseVitals.bloodGlucose === 'number' && baseVitals.bloodGlucose < 65) ||
+    caseData.patientInfo.triageLevel.includes('Nivel I');
+
+  const interventionReviews: StatInterventionAuditItem[] = statList.map((rec) => {
+    const deltaSummary =
+      rec.deltas.length > 0
+        ? rec.deltas.map((d) => `${d.metric}: ${d.before} → ${d.after} (${d.deltaText})`).join(' · ')
+        : 'Sin cambios inmediatos en monitor';
+
+    if (rec.effectSeverity === 'reaccion_adversa') {
+      return {
+        drug: rec.drug,
+        dose: rec.dose,
+        route: rec.route,
+        verdict: 'riesgo_o_excesivo',
+        comment: rec.physiologicalEffectSummary,
+        deltaSummary,
+      };
+    }
+    if (rec.effectSeverity === 'mejoria') {
+      return {
+        drug: rec.drug,
+        dose: rec.dose,
+        route: rec.route,
+        verdict: 'adecuado',
+        comment: rec.physiologicalEffectSummary,
+        deltaSummary,
+      };
+    }
+    if (rec.effectSeverity === 'parcial') {
+      return {
+        drug: rec.drug,
+        dose: rec.dose,
+        route: rec.route,
+        verdict: 'adecuado',
+        comment: rec.physiologicalEffectSummary,
+        deltaSummary,
+      };
+    }
+    return {
+      drug: rec.drug,
+      dose: rec.dose,
+      route: rec.route,
+      verdict: 'parcial_o_sin_efecto',
+      comment: rec.physiologicalEffectSummary,
+      deltaSummary,
+    };
+  });
+
+  const adverseStatEvents = interventionReviews.filter((r) => r.verdict === 'riesgo_o_excesivo');
+  const positiveStatEvents = interventionReviews.filter((r) => r.verdict === 'adecuado');
+
+  for (const adv of adverseStatEvents) {
+    const msg = `¡EVENTO ADVERSO EN ESTABILIZACIÓN STAT!: ${adv.drug} (${adv.dose}, ${adv.route}) — ${adv.comment}`;
+    if (!criticalSafetyErrors.some((e) => normStr(e).includes(normStr(adv.drug).slice(0, 8)))) {
+      criticalSafetyErrors.push(msg);
+    }
+  }
+
+  const vitalEvolutionSummary = `Ingreso: PA ${baseVitals.bloodPressure.split(' ')[0]} · FC ${baseVitals.heartRate} · FR ${baseVitals.respiratoryRate} · SpO₂ ${baseVitals.oxygenSaturation}%${typeof baseVitals.bloodGlucose === 'number' ? ` · Gluc ${baseVitals.bloodGlucose}` : ''}  →  Final: PA ${endVitals.bloodPressure.split(' ')[0]} · FC ${endVitals.heartRate} · FR ${endVitals.respiratoryRate} · SpO₂ ${endVitals.oxygenSaturation}%${typeof endVitals.bloodGlucose === 'number' ? ` · Gluc ${endVitals.bloodGlucose}` : ''}`;
+
+  let statOverallVerdict: StatAuditSummary['overallVerdict'] = 'no_requerido';
+  let statNarrative =
+    'Caso sin requerimiento crítico de estabilización STAT inmediata en sala de choque.';
+
+  if (adverseStatEvents.length > 0) {
+    statOverallVerdict = 'riesgo_critico';
+    statNarrative = `Se aplicaron ${statList.length} intervención(es) STAT, pero ${adverseStatEvents.length} produjo deterioro fisiológico o evento adverso por dosis excesiva o contraindicación.`;
+  } else if (statList.length > 0) {
+    if (positiveStatEvents.length > 0) {
+      statOverallVerdict = 'optimo';
+      statNarrative = `Estabilización STAT oportuna (${statList.length} dosis aplicadas) con respuesta fisiológica favorable y sin iatrogenia.`;
+      if (treatScore > 0 && treatScore < 15 && matchedDrugs.length > 0) {
+        treatScore = Math.min(15, treatScore + 1);
+      }
+    } else {
+      statOverallVerdict = 'parcial';
+      statNarrative = `Se administraron ${statList.length} intervención(es) STAT, aunque sin impacto relevante sobre la alteración fisiológica prioritaria.`;
+    }
+  } else if (arrivedCriticallyUnstable && matchedDrugs.length === 0) {
+    statOverallVerdict = 'omitido_en_inestabilidad';
+    statNarrative = `El paciente ingresó con compromiso vital significativo (PA ${baseSys} mmHg / SpO₂ ${baseVitals.oxygenSaturation}%) y no recibió intervención STAT estabilizadora ni manejo agudo acorde.`;
+    if (treatScore > 2) {
+      treatScore = Math.max(0, treatScore - 2);
+    }
+  }
+
+  const statAudit: StatAuditSummary = {
+    performedCount: statList.length,
+    overallVerdict: statOverallVerdict,
+    vitalEvolutionSummary,
+    narrative: statNarrative,
+    interventionReviews,
+  };
+
   if (criticalSafetyErrors.length > 0) {
     treatScore = Math.min(treatScore, 3);
+  }
+
+  // Uso Racional de Antibióticos (stewardship en primer nivel y urgencias)
+  const activeUserRxOnly = stripNegatedMedicationClauses(
+    userRx.map((r) => `${r.drug} ${r.dose} ${r.route}`).join('. ')
+  );
+  const prescribedSystemicAbx = SYSTEMIC_ANTIBIOTIC_REGEX.test(activeUserRxOnly);
+  const nonBacterialCase = isNonBacterialPrimaryCase(diagNormForRx);
+  let rationalAntibioticStatus: 'optimo' | 'alerta' | 'no_aplica' = 'no_aplica';
+  let rationalAntibioticNote = 'Caso con indicación antimicrobiana específica o manejo no centrado en stewardship viral.';
+
+  if (nonBacterialCase && prescribedSystemicAbx) {
+    rationalAntibioticStatus = 'alerta';
+    rationalAntibioticNote =
+      'Alerta de Uso Racional: se prescribió antibiótico sistémico en una patología viral, mecánica o no bacteriana sin sobreinfección demostrada (-2 pts).';
+    if (treatScore > 0) {
+      treatScore = Math.max(0, treatScore - 2);
+    }
+  } else if (nonBacterialCase && (userRx.length > 0 || hasGeneralMeasures)) {
+    rationalAntibioticStatus = 'optimo';
+    rationalAntibioticNote =
+      'Uso racional ejemplar: evitaste prescribir antibióticos innecesarios en un cuadro no bacteriano, previniendo resistencia antimicrobiana.';
+  } else if (!nonBacterialCase && optRx.some((r) => SYSTEMIC_ANTIBIOTIC_REGEX.test(normStr(r.drug)))) {
+    if (matchedDrugs.some((d) => SYSTEMIC_ANTIBIOTIC_REGEX.test(normStr(d)))) {
+      rationalAntibioticStatus = 'optimo';
+      rationalAntibioticNote =
+        'Esquema antimicrobiano dirigido acorde a normativa nacional (MINSA) e internacional para este foco.';
+    } else if (prescribedSystemicAbx) {
+      rationalAntibioticStatus = 'alerta';
+      rationalAntibioticNote =
+        'El antibiótico elegido no corresponde al espectro de primera línea recomendado por las guías clínicas para este foco.';
+    } else {
+      rationalAntibioticStatus = 'alerta';
+      rationalAntibioticNote =
+        'Patología bacteriana que requería inicio oportuno de antibioticoterapia de primera línea.';
+    }
   }
 
   // Nota docente farmacológica cuando se prescriben alternativas seguras en alergia a penicilina
   const allergiesNormForNote = normStr((caseData.background?.allergies || []).join(' '));
   const pharmacologyNotes: string[] = [];
   if (allergiesNormForNote.includes('penicilin') && criticalSafetyErrors.length === 0) {
-    if (/\b(meropenem|imipenem|ertapenem)\b/.test(userRxText)) {
+    if (/\b(meropenem|imipenem|ertapenem)\b/.test(userRxOnlyNorm)) {
       pharmacologyNotes.push(
         'Nota farmacológica: El uso de un carbapenémico (ej. meropenem) tiene <1% de reactividad cruzada en alergia a penicilina (guías AAAAI 2022) y NO se penaliza como error anafiláctico; sin embargo, para infecciones comunitarias sin riesgo MDR se prefiere un esquema dirigido (como levofloxacino).'
       );
     }
-    if (/\b(eritromicina|azitromicina|claritromicina)\b/.test(userRxText)) {
+    if (/\b(eritromicina|azitromicina|claritromicina)\b/.test(userRxOnlyNorm)) {
       pharmacologyNotes.push(
         'Nota farmacológica: Los macrólidos (eritromicina/azitromicina) son seguros ante alergia a penicilina, pero por la resistencia neumocócica (~25-40%) en paciente hospitalizado grave se prefiere fluoroquinolona respiratoria (Levofloxacino 750 mg IV).'
       );
     }
   }
 
+  const uniqueEquivalents = Array.from(new Set(recognizedEquivalents));
+
   const treatDetail: RubricCategoryDetail = {
     whyScore:
       userRx.length === 0 && !hasGeneralMeasures
         ? 'Obtuviste 0/15 porque no propusiste fármacos ni medidas generales terapéuticas.'
-        : `Indicaste ${userRx.length} fármaco(s) (${completeRxCount} con posología completa) y acertaste en ${matchedDrugs.length} de ${optRx.length} pilares farmacológicos recomendados (${treatScore}/15 pts).`,
+        : `Indicaste ${userRx.length} fármaco(s) (${completeRxCount} con posología completa) y cubriste ${matchedDrugs.length} de ${optRx.length} pilares terapéuticos aceptados por Normativa MINSA / Internacional (${treatScore}/15 pts).`,
     strengths: [
       ...matchedDrugs.map((d) => `Indicación terapéutica acertada: ${d}`),
+      ...positiveStatEvents.map(
+        (s) => `Estabilización STAT efectiva: ${s.drug} (${s.dose}) — ${s.deltaSummary}`
+      ),
+      ...uniqueEquivalents.filter((e) => !e.startsWith('Nomenclatura')),
+      ...(rationalAntibioticStatus === 'optimo' && nonBacterialCase
+        ? ['Uso racional de antibióticos: no indicaste antimicrobianos innecesarios en cuadro no bacteriano.']
+        : []),
       ...(hasGeneralMeasures ? ['Incluiste medidas generales de soporte clínico.'] : []),
     ],
     missingOrImprove: [
-      ...missedDrugs.map((d) => `Faltó indicar según guía clínica: ${d}`),
+      ...missedDrugs.map((d) => `Faltó indicar según esquema de referencia: ${d}`),
+      ...adverseStatEvents.map((a) => `Dosis o fármaco STAT riesgoso (${a.drug} ${a.dose}): ${a.comment}`),
+      ...(statOverallVerdict === 'omitido_en_inestabilidad' ? [statNarrative] : []),
+      ...(rationalAntibioticStatus === 'alerta' && nonBacterialCase ? [rationalAntibioticNote] : []),
       ...pharmacologyNotes,
       ...(userRx.length > 0 && completeRxCount < userRx.length
         ? ['Completa siempre dosis exacta, vía, frecuencia y duración de cada fármaco prescrito.']
@@ -639,57 +1657,105 @@ export function buildDidacticEvaluation(
         ? ['Faltó detallar medidas generales (hidratación/ayuno/oxigenoterapia/monitorización/reposo según el caso).']
         : []),
     ],
-    expectedStandard: `Esquema ideal: ${optRx.map((r) => `${r.drug} ${r.dose} (${r.route}, ${r.frequency})`).join(' + ')}.`,
+    expectedStandard: `Esquema de referencia: ${optRx.map((r) => `${r.drug} ${r.dose} (${r.route}, ${r.frequency})`).join(' + ')}. (También se aceptan equivalentes válidos de Lista Básica MINSA e Internacional).`,
   };
   if (treatDetail.strengths.length === 0) {
-    treatDetail.strengths.push('Sin coincidencias con los fármacos de primera línea recomendados.');
+    treatDetail.strengths.push('Sin coincidencias con los fármacos recomendados.');
   }
   if (treatDetail.missingOrImprove.length === 0) {
-    treatDetail.missingOrImprove.push('Prescripción farmacológica completa, segura y bien dosificada.');
+    treatDetail.missingOrImprove.push('Prescripción farmacológica completa, segura y acorde a normativa.');
   }
 
-  // 7. CONDUCTA, TRIAGE Y SEGURIDAD DEL PACIENTE (0 a 5 pts)
+  // 7. CONDUCTA, TRIAGE Y SEGURIDAD DEL PACIENTE (0 a 5 pts) — Con crédito parcial en conductas intermedias seguras
   const expectedHosp = solution.optimalTreatment?.hospitalizationDecision || '';
-  const hospMatch =
+  const userRank = getDispositionRank(normStr(submission.hospitalizationDecision));
+  const expectedRank = getDispositionRank(normStr(expectedHosp));
+
+  const hospExactMatch =
     normStr(submission.hospitalizationDecision) === normStr(expectedHosp) ||
     (expectedHosp.includes('UCI') && submission.hospitalizationDecision.includes('Hospitalización'));
+
+  const hospAdjacentSafe =
+    !hospExactMatch &&
+    userRank > 0 &&
+    expectedRank > 0 &&
+    ((userRank === 2 && expectedRank === 3) ||
+      (userRank === 3 && expectedRank === 2) ||
+      (userRank === 2 && expectedRank === 1));
+
   const hasReferral = (submission.referralCriteria || '').trim().length >= 10;
   const hasFollowUp = (submission.followUpPlan || '').trim().length >= 10;
+  const redFlagSource = normStr(
+    `${submission.followUpPlan || ''} ${submission.referralCriteria || ''} ${submission.generalMeasures || ''}`
+  );
+  const hasRedFlagsGuidance =
+    /\b(alarma|urgencia|regresar|revalor|empeor|fiebre|sangr|disnea|dificultad|deshidrat|vomit|dolor|vigil|24|48|72|signos)\b/.test(
+      redFlagSource
+    );
   const noMeaningfulWorkDone = !userDiag.trim() && userRx.length === 0 && !hasGeneralMeasures;
+
+  let referralTriageVerdict: 'correcto' | 'subestimado' | 'sobreestimado' = 'correcto';
+  let referralTriageNote = `Destino clínico acertado ("${expectedHosp}"): equilibrio adecuado entre manejo en primer nivel y referencia oportuna.`;
+
+  if (!hospExactMatch) {
+    if (hospAdjacentSafe && userRank === 2 && expectedRank === 3) {
+      referralTriageVerdict = 'subestimado';
+      referralTriageNote = `Conducta intermedia aceptable parcialmente: indicaste "${submission.hospitalizationDecision}" con vigilancia, aunque el caso amerita "${expectedHosp}" (2/3 pts).`;
+    } else if (hospAdjacentSafe) {
+      referralTriageVerdict = 'sobreestimado';
+      referralTriageNote = `Conducta preventiva válida parcialmente: indicaste "${submission.hospitalizationDecision}", aunque puede resolverse como "${expectedHosp}" (2/3 pts).`;
+    } else if (userRank > 0 && expectedRank > 0 && userRank < expectedRank) {
+      referralTriageVerdict = 'subestimado';
+      referralTriageNote = `Subestimación de gravedad / referencia tardía: indicaste "${submission.hospitalizationDecision}" cuando la patología exige "${expectedHosp}".`;
+    } else if (userRank > expectedRank && expectedRank > 0) {
+      referralTriageVerdict = 'sobreestimado';
+      referralTriageNote = `Sobre-referencia de recursos: indicaste "${submission.hospitalizationDecision}", aunque este cuadro puede resolverse de forma segura como "${expectedHosp}".`;
+    } else {
+      referralTriageVerdict = 'subestimado';
+      referralTriageNote = `No definiste un destino clínico acorde al nivel esperado ("${expectedHosp}").`;
+    }
+  }
+
+  const redFlagsSafetyNote = hasRedFlagsGuidance
+    ? 'Se documentaron signos de alarma o pautas de vigilancia/revaloración oportuna.'
+    : expectedHosp === 'Ambulatorio'
+      ? 'En manejo ambulatorio es indispensable explicar al paciente los signos de alarma específicos para acudir de inmediato a urgencias.'
+      : 'Faltó explicitar parámetros objetivos de vigilancia o deterioro clínico para escalar manejo.';
 
   let safetyScore = 0;
   if (noMeaningfulWorkDone || criticalSafetyErrors.length > 0) {
     safetyScore = 0;
   } else {
-    safetyScore = (hospMatch ? 3 : 0) + (hasReferral ? 1 : 0) + (hasFollowUp ? 1 : 0);
+    const dispositionPts = hospExactMatch ? 3 : hospAdjacentSafe ? 2 : 0;
+    safetyScore = dispositionPts + (hasReferral ? 1 : 0) + (hasFollowUp ? 1 : 0);
   }
 
   const safetyDetail: RubricCategoryDetail = {
     whyScore: noMeaningfulWorkDone
       ? 'Obtuviste 0/5 porque no se registró diagnóstico ni plan terapéutico, dejando al paciente sin conducta médica definida.'
       : criticalSafetyErrors.length > 0
-        ? 'Obtuviste 0/5 por cometer un error crítico de seguridad que pone en peligro la vida del paciente.'
+        ? 'Obtuviste 0/5 por cometer un error crítico de seguridad que pone en peligro la vida o integridad del paciente.'
         : `Nivel de atención propuesto: "${submission.hospitalizationDecision || 'Sin especificar'}" vs esperado "${expectedHosp}" (${safetyScore}/5 pts).`,
     strengths: [
-      ...(hospMatch && !noMeaningfulWorkDone ? [`Decisión correcta de destino clínico (${expectedHosp}).`] : []),
+      ...(hospExactMatch && !noMeaningfulWorkDone ? [`Decisión correcta de destino clínico (${expectedHosp}).`] : []),
+      ...(hospAdjacentSafe && !noMeaningfulWorkDone ? [`Destino intermedio seguro reconocido parcialmente (${submission.hospitalizationDecision}).`] : []),
       ...(!noMeaningfulWorkDone && criticalSafetyErrors.length === 0
         ? ['Sin errores farmacológicos potencialmente mortales ni iatrogenia grave.']
         : []),
       ...(hasReferral ? ['Definiste criterios de referencia o interconsulta.'] : []),
       ...(hasFollowUp ? ['Definiste plan de seguimiento y vigilancia.'] : []),
+      ...(hasRedFlagsGuidance ? ['Incluiste signos de alarma o pautas claras de revaloración.'] : []),
     ],
     missingOrImprove: [
       ...criticalSafetyErrors,
       ...(noMeaningfulWorkDone
         ? ['Registra al menos un diagnóstico presuntivo y conducta clínica antes de finalizar la atención.']
         : []),
-      ...(!hospMatch
-        ? [`El destino clínico correcto por gravedad es "${expectedHosp}" (seleccionaste "${submission.hospitalizationDecision || 'Ninguno'}").`]
-        : []),
+      ...(!hospExactMatch ? [referralTriageNote] : []),
       ...(!hasReferral ? ['Faltó especificar criterios claros de referencia/interconsulta especializada o ingreso a UCI.'] : []),
-      ...(!hasFollowUp ? ['Faltó detallar signos de alarma para revaloración y plan de seguimiento.'] : []),
+      ...(!hasFollowUp || !hasRedFlagsGuidance ? [redFlagsSafetyNote] : []),
     ],
-    expectedStandard: `Conducta esperada: ${expectedHosp}. Seguimiento: ${solution.optimalTreatment?.followUp || 'Vigilancia clínica estrecha.'}`,
+    expectedStandard: `Conducta esperada: ${expectedHosp}. Seguimiento: ${solution.optimalTreatment?.followUp || 'Vigilancia clínica estrecha y signos de alarma.'}`,
   };
   if (safetyDetail.strengths.length === 0) {
     safetyDetail.strengths.push('No se acreditó una conducta segura válida.');
@@ -755,6 +1821,17 @@ export function buildDidacticEvaluation(
       guidelinesSummary: (solution.guidelineReferences || []).join(' · '),
     },
     differentialExplanations,
+    rationalUseAudit: {
+      rationalAntibioticStatus,
+      rationalAntibioticNote,
+      workupStewardshipNote,
+      redFlagsSafetyNote,
+      referralTriageVerdict,
+      referralTriageNote,
+    },
+    evaluationFrameworkLabel: EVALUATION_FRAMEWORK_LABEL,
+    recognizedEquivalents: uniqueEquivalents,
+    statAudit,
     userSummary: {
       primaryDiagnosis: submission.primaryDiagnosis || 'Sin diagnóstico registrado',
       differentialDiagnoses: userDiffs,
@@ -767,6 +1844,8 @@ export function buildDidacticEvaluation(
       questionCount: qCount,
       unlockedExamsNames: totalUnlockedExams.map((e) => e.name),
       unlockedStudiesNames: totalUnlockedStudies.map((s) => s.name),
+      baselineVitalSigns: baseVitals,
+      finalVitalSigns: endVitals,
     },
     resolvedAt: new Date().toISOString(),
   };
@@ -794,8 +1873,8 @@ export function enrichEvaluationWithDidactics(
   const capWithBaselineIfStrict = (aiVal: number | undefined, baseVal: number, maxVal: number, isEmpty: boolean) => {
     if (isEmpty) return 0;
     const raw = Math.min(maxVal, Math.max(0, Math.round(aiVal ?? baseVal)));
-    // Evita que la IA infle demasiado cuando el desempeño objetivo es bajo (ej. escopetazo o diagnóstico erróneo)
-    return Math.min(raw, Math.max(baseVal + 2, Math.round((raw + baseVal) / 2)));
+    // Permite reconocer redacción clínica natural y equivalencias nacionales cuando la IA las valida, evitando castigos artificiales
+    return Math.min(raw, Math.max(baseVal + 4, Math.round(raw * 0.65 + baseVal * 0.35)));
   };
 
   const mergedBreakdown = {
@@ -868,6 +1947,10 @@ export function enrichEvaluationWithDidactics(
       aiEval.differentialExplanations && aiEval.differentialExplanations.length > 0
         ? aiEval.differentialExplanations
         : baseline.differentialExplanations,
+    rationalUseAudit: baseline.rationalUseAudit,
+    evaluationFrameworkLabel: baseline.evaluationFrameworkLabel,
+    recognizedEquivalents: baseline.recognizedEquivalents,
+    statAudit: baseline.statAudit,
     userSummary: baseline.userSummary,
     feedback: {
       diagnosisAccuracyComment: aiEval.feedback?.diagnosisAccuracyComment || baseline.feedback.diagnosisAccuracyComment,
@@ -971,14 +2054,19 @@ export function determineClinicalOutcome(
     };
   }
 
+  const finalVitals = evaluation.userSummary?.finalVitalSigns;
+  const realVitalsLine = finalVitals
+    ? `PA: ${finalVitals.bloodPressure.split(' ')[0]} mmHg · FC: ${finalVitals.heartRate} lpm · FR: ${finalVitals.respiratoryRate} rpm · SpO₂: ${finalVitals.oxygenSaturation}%`
+    : 'PA y FC estabilizadas · SatO2 98% · Sin signos de alarma activos';
+
   // 5. Salvado Satisfactoriamente (Puntaje >= 78 y sin errores críticos)
   return {
     status: 'saved',
     badgeLabel: 'EVOLUCIÓN FAVORABLE · PACIENTE ESTABILIZADO',
     headline: `¡${name} ha sido salvado satisfactoriamente!`,
-    sceneNarrative: `Gracias a tu diagnóstico oportuno, criterio clínico preciso y esquema terapéutico acertado, ${name} respondió de manera excelente al manejo instaurado. Los parámetros hemodinámicos y respiratorios se normalizaron progresivamente sin complicaciones ni secuelas.`,
+    sceneNarrative: `Gracias a tu diagnóstico oportuno, criterio clínico preciso y esquema terapéutico acertado, ${name} respondió de manera excelente al manejo instaurado. Los parámetros hemodinámicos y respiratorios evolucionaron favorablemente sin complicaciones ni secuelas.`,
     patientQuote: '"¡Muchísimas gracias, doctor! De verdad sentí que estaba en buenas manos desde el primer momento; ya me siento muchísimo mejor."',
-    vitalMonitorStatus: 'PA y FC estabilizadas · SatO2 98% · Sin signos de alarma activos',
+    vitalMonitorStatus: realVitalsLine,
     clinicalPostscript: 'Desenlace clínico exitoso y seguro conforme a los estándares médicos internacionales.',
   };
 }

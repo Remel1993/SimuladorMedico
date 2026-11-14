@@ -10,10 +10,246 @@ import {
   buildPatientSystemInstruction,
   ensureFirstPersonReply,
   generateContextualPatientReply,
+  isSimilarToPrevious,
   PatientChatPayload,
 } from './serverPatientChat.js';
 
 dotenv.config();
+
+const AI_CLINICAL_SEEDS: Record<Exclude<Specialty, 'aleatorio'>, string[]> = {
+  infectologia: [
+    'Leptospirosis grave (Síndrome de Weil)',
+    'Paludismo grave por Plasmodium falciparum',
+    'Fiebre tifoidea complicada',
+    'Brucelosis subaguda con sacroileítis',
+    'Tétanos generalizado',
+  ],
+  cardiologia: [
+    'Disección aórtica aguda tipo A de Stanford',
+    'Endocarditis infecciosa de válvula aórtica',
+    'Taquicardia supraventricular por reentrada nodal',
+    'Bloqueo auriculoventricular completo sintomático',
+    'Miocarditis aguda viral simulando síndrome coronario',
+  ],
+  cirugia_general: [
+    'Diverticulitis aguda sigmoidea complicada (Hinchey II)',
+    'Isquemia mesentérica aguda embólica',
+    'Úlcera péptica perforada con neumoperitoneo',
+    'Hernia inguinal encarcerada / estrangulada',
+    'Vólvulo de sigmoides',
+  ],
+  endocrinologia: [
+    'Estado hiperosmolar hiperglucémico no cetósico',
+    'Coma mixedematoso por hipotiroidismo severo descompensado',
+    'Feocromocitoma en crisis adrenérgica',
+    'Hiponatremia severa sintomática por SIADH',
+    'Hipocalcemia aguda severa post-tiroidectomía',
+  ],
+  neurologia: [
+    'Hemorragia subaracnoidea aneurismática',
+    'Status epiléptico convulsivo generalizado',
+    'Crisis miasténica (Miastenia Gravis)',
+    'Encefalitis viral por Herpes Simple (VHS-1)',
+    'Trombosis de senos venosos cerebrales',
+  ],
+  neumologia: [
+    'Exacerbación grave de EPOC con insuficiencia respiratoria hipercápnica',
+    'Empiema pleural paraneumónico complicado',
+    'Absceso pulmonar por aspiración',
+    'Síndrome de distrés respiratorio agudo (SDRA) por influenza grave',
+    'Hemoptisis masiva por bronquiectasias',
+  ],
+  medicina_interna: [
+    'Lupus eritematoso sistémico con nefritis lúpica y serositis',
+    'Púrpura trombocitopénica trombótica (PTT)',
+    'Arteritis de células gigantes (temporal) con riesgo visual',
+    'Polimiositis / rabdomiólisis severa',
+    'Crisis blástica / síndrome de lisis tumoral',
+  ],
+  urgencias: [
+    'Intoxicación aguda por monóxido de carbono',
+    'Intoxicación grave por paracetamol (acetaminofén)',
+    'Golpe de calor clásico / por esfuerzo con falla multiorgánica',
+    'Angioedema hereditario o inducido por IECA con compromiso laríngeo',
+    'Choque hemorrágico por trauma abdominal cerrado',
+  ],
+  pediatria: [
+    'Estenosis hipertrófica del píloro en lactante',
+    'Epiglotitis aguda / traqueítis bacteriana',
+    'Enfermedad de Kawasaki clásica',
+    'Síndrome urémico hemolítico postdiarreico',
+    'Purpura de Henoch-Schönlein con dolor abdominal',
+  ],
+  gastroenterologia: [
+    'Encefalopatía hepática aguda precipitada por hemorragia/infección',
+    'Hepatitis alcohólica aguda grave',
+    'Colitis ulcerosa aguda grave (megacolon tóxico incipiente)',
+    'Síndrome de Boerhaave (perforación esofágica tras vómitos)',
+    'Peritonitis bacteriana espontánea en paciente cirrótico',
+  ],
+  nefrologia: [
+    'Glomerulonefritis aguda postestreptocócica',
+    'Síndrome nefrótico primario con trombosis venosa renal',
+    'Rabdomiólisis con lesión renal aguda mioglobinúrica',
+    'Nefritis intersticial aguda inmunoalérgica por fármacos',
+  ],
+  ginecologia: [
+    'Torsión ovárica aguda con quiste anexial',
+    'Endometritis / sepsis puerperal postparto',
+    'Desprendimiento prematuro de placenta normoinserta (DPPNI)',
+    'Enfermedad pélvica inflamatoria con absceso tubo-ovárico',
+  ],
+  traumatologia: [
+    'Síndrome de cauda equina por hernia discal lumbar masiva',
+    'Artritis séptica aguda de rodilla',
+    'Luxación posterior traumática de cadera',
+    'Fractura pélvica inestable en libro abierto',
+  ],
+  dermatologia: [
+    'Fascitis necrotizante temprana de extremidad',
+    'Herpes zóster oftálmico con signo de Hutchinson',
+    'Pénfigo vulgar con compromiso mucocutáneo extenso',
+    'Púrpura fulminans / vasculitis leucocitoclástica severa',
+  ],
+  psiquiatria: [
+    'Síndrome neuroléptico maligno por antipsicóticos',
+    'Intoxicación aguda por litio en trastorno bipolar',
+    'Intoxicación por antidepresivos tricíclicos con toxicidad cardíaca',
+    'Catatonía maligna aguda',
+  ],
+};
+
+const AI_OUTPATIENT_SEEDS: Record<Exclude<Specialty, 'aleatorio'>, string[]> = {
+  infectologia: [
+    'Faringoamigdalitis aguda estreptocócica en consulta externa',
+    'Sinusitis bacteriana aguda postviral',
+    'Gastroenteritis aguda infecciosa leve ambulatoria',
+    'Diarrea del viajero leve sin deshidratación grave',
+  ],
+  cardiologia: [
+    'Hipertensión arterial sistémica esencial grado 1-2 de reciente diagnóstico',
+    'Angina estable crónica típica en consulta externa',
+    'Fibrilación auricular crónica estable en primer nivel',
+    'Insuficiencia venosa crónica sintomática',
+  ],
+  cirugia_general: [
+    'Hernia inguinal reductible no complicada en consulta externa',
+    'Enfermedad hemorroidal interna grado II sangrante leve',
+    'Colelitiasis sintomática simple (cólico biliar no complicado)',
+    'Quiste pilonidal crónico no abscedado',
+  ],
+  endocrinologia: [
+    'Hipotiroidismo primario clínico (Tiroiditis de Hashimoto)',
+    'Diabetes mellitus tipo 2 de debut estable sin cetosis',
+    'Síndrome metabólico y dislipidemia mixta primaria',
+    'Hipertiroidismo leve por enfermedad de Graves ambulatorio',
+  ],
+  neurologia: [
+    'Migraña clásica sin aura en consulta externa',
+    'Cefalea tensional episódica frecuente',
+    'Parálisis facial periférica idiopática (Parálisis de Bell)',
+    'Síndrome del túnel carpiano moderado (confirmado por electromiografía)',
+    'Radiculopatía lumbar S1 por hernia discal con electromiografía',
+  ],
+  neumologia: [
+    'Asma bronquial leve persistente en consulta externa',
+    'Bronquitis aguda viral en adulto sano',
+    'EPOC estable grupo B en seguimiento ambulatorio',
+    'Tos crónica secundaria a goteo retronasal / rinitis alérgica',
+  ],
+  medicina_interna: [
+    'Anemia ferropénica crónica por hipermenorrea',
+    'Anemia megaloblástica y neuropatía por deficiencia de vitamina B12',
+    'Osteomalacia / miopatía proximal por deficiencia severa de vitamina D',
+    'Gota aguda (podagra) en primer nivel',
+    'Osteoartritis sintomática de rodilla',
+  ],
+  urgencias: [
+    'Vértigo posicional paroxístico benigno (VPPB)',
+    'Urticaria aguda leve sin anafilaxia',
+    'Cuerpo extraño corneal superficial / conjuntivitis bacteriana aguda',
+    'Cólico renal leve no complicado ambulatorio',
+  ],
+  pediatria: [
+    'Otitis media aguda no complicada en escolar',
+    'Gastroenteritis viral leve con deshidratación mínima en preescolar',
+    'Impétigo contagioso no ampolloso en niño',
+    'Faringitis viral / resfriado común vs estreptocócica en escolar',
+  ],
+  gastroenterologia: [
+    'Enfermedad por reflujo gastroesofágico (ERGE) típica',
+    'Síndrome de intestino irritable (Roma IV)',
+    'Dispepsia funcional / gastritis crónica asociada a H. pylori',
+    'Estreñimiento crónico funcional',
+  ],
+  nefrologia: [
+    'Cistitis aguda no complicada en mujer joven',
+    'Litiasis renal pequeña no obstructiva en consulta externa',
+    'Microalbuminuria incipiente en paciente hipertenso/diabético',
+  ],
+  ginecologia: [
+    'Candidiasis vulvovaginal aguda no complicada',
+    'Vaginosis bacteriana en consulta externa',
+    'Síndrome de ovario poliquístico (SOP)',
+    'Dismenorrea primaria en mujer joven',
+  ],
+  traumatologia: [
+    'Esguince lateral de tobillo grado I-II (Ottawa negativo)',
+    'Lumbalgia mecánica aguda sin radiculopatía',
+    'Tendinitis del manguito rotador / hombro doloroso',
+    'Fascitis plantar crónica en consulta externa',
+  ],
+  dermatologia: [
+    'Herpes zóster torácico no complicado (<72 h)',
+    'Tiña corporal (dermatofitosis superficial)',
+    'Dermatitis atópica leve-moderada en brote ambulatorio',
+    'Acné vulgar moderado en adolescente/adulto joven',
+  ],
+  psiquiatria: [
+    'Trastorno de ansiedad generalizada en primer nivel',
+    'Episodio depresivo mayor leve a moderado ambulatorio',
+    'Trastorno de insomnio crónico primario',
+    'Trastorno de pánico en consulta externa',
+  ],
+};
+
+function normalizeDiag(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+}
+
+function extractJsonObject(raw: string): string {
+  const cleaned = raw.replace(/```json/gi, '').replace(/```/g, '').trim();
+  const firstBrace = cleaned.indexOf('{');
+  const lastBrace = cleaned.lastIndexOf('}');
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    return cleaned.slice(firstBrace, lastBrace + 1);
+  }
+  return cleaned;
+}
+
+function pickLeastRecentlySeen(
+  pool: ClinicalCase[],
+  excludeCaseIds: string[],
+  excludeCaseId?: string
+): ClinicalCase {
+  const filtered = excludeCaseId && pool.length > 1
+    ? pool.filter((c) => c.id !== excludeCaseId)
+    : pool;
+  if (filtered.length === 1) return filtered[0];
+
+  const scored = filtered.map((c) => {
+    const idx = excludeCaseIds.lastIndexOf(c.id);
+    return { item: c, recency: idx === -1 ? -1 : idx };
+  });
+  scored.sort((a, b) => a.recency - b.recency);
+  const minRecency = scored[0].recency;
+  const tiedBest = scored.filter((s) => s.recency === minRecency).map((s) => s.item);
+  return tiedBest[Math.floor(Math.random() * tiedBest.length)];
+}
 
 const MODE_DESCRIPTIONS: Record<GameMode, string> = {
   principiante:
@@ -53,7 +289,7 @@ const __dirname = path.dirname(__filename);
 const app = express();
 app.use(express.json({ limit: '10mb' }));
 
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 // Shared Gemini API client instance with recommended telemetry header
 const ai = new GoogleGenAI({
@@ -64,6 +300,101 @@ const ai = new GoogleGenAI({
     },
   },
 });
+
+// Valid free-tier models in priority order with per-model quota circuit breaker
+const GEMINI_FREE_MODELS = ['gemini-4-hydrogen', 'gemini-3.1-flash-lite'] as const;
+const modelCooldownUntil: Record<string, number> = {};
+const loggedCooldownForModel = new Set<string>();
+
+function isQuotaOrRateLimitError(err: any): boolean {
+  const raw =
+    typeof err === 'string'
+      ? err
+      : `${err?.message || ''} ${err?.status || ''} ${JSON.stringify(err || '')}`;
+  return (
+    err?.status === 429 ||
+    err?.code === 429 ||
+    /429|RESOURCE_EXHAUSTED|quota|rate[- ]?limit/i.test(raw)
+  );
+}
+
+function extractRetryCooldownMs(err: any): number {
+  const raw =
+    typeof err === 'string'
+      ? err
+      : `${err?.message || ''} ${JSON.stringify(err || '')}`;
+  const secMatch = raw.match(/retryDelay["':\s]+(\d+)s/i);
+  if (secMatch) {
+    const secs = Number(secMatch[1]);
+    if (Number.isFinite(secs) && secs > 0) {
+      return Math.min(Math.max(secs * 1000, 60_000), 60 * 60_000);
+    }
+  }
+  return 30 * 60_000;
+}
+
+function markModelFailure(model: string, err: any): void {
+  if (isQuotaOrRateLimitError(err)) {
+    const cooldownMs = extractRetryCooldownMs(err);
+    modelCooldownUntil[model] = Date.now() + cooldownMs;
+    if (!loggedCooldownForModel.has(model)) {
+      loggedCooldownForModel.add(model);
+      console.info(`[gemini] ${model} alcanzó el límite de cuota; usando respaldo local/modelo alterno.`);
+    }
+  }
+}
+
+async function callGeminiWithFallback(options: {
+  contents: string;
+  systemInstruction?: string;
+  responseMimeType?: string;
+  thinkingLevel?: ThinkingLevel;
+  timeoutMs: number;
+}): Promise<string | null> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') return null;
+
+  const deadline = Date.now() + options.timeoutMs;
+
+  for (const model of GEMINI_FREE_MODELS) {
+    const now = Date.now();
+    if (now < (modelCooldownUntil[model] || 0)) continue;
+
+    const remainingMs = deadline - now;
+    if (remainingMs < 1500) break;
+
+    const config: Record<string, any> = {};
+    if (options.systemInstruction) config.systemInstruction = options.systemInstruction;
+    if (options.responseMimeType) config.responseMimeType = options.responseMimeType;
+    if (model === 'gemini-4-hydrogen' && options.thinkingLevel) {
+      config.thinkingConfig = { thinkingLevel: options.thinkingLevel };
+    }
+
+    const aiCall = ai.models
+      .generateContent({
+        model,
+        contents: options.contents,
+        config,
+      })
+      .catch((err) => {
+        markModelFailure(model, err);
+        return null;
+      });
+
+    const timerPromise = new Promise<null>((resolve) =>
+      setTimeout(() => resolve(null), remainingMs)
+    );
+
+    const response: any = await Promise.race([aiCall, timerPromise]);
+    const text = response?.text?.trim();
+    if (text) {
+      loggedCooldownForModel.delete(model);
+      return text;
+    }
+  }
+
+  return null;
+}
 
 // Endpoint: Generate or fetch a clinical case
 app.post('/api/generate-case', async (req: Request, res: Response) => {
@@ -87,42 +418,118 @@ app.post('/api/generate-case', async (req: Request, res: Response) => {
       }
     }
 
-    // Try AI generation if valid API key is configured
+    const filterCompatibleFallbackPool = (pool: ClinicalCase[], targetMode: GameMode): ClinicalCase[] => {
+      if (targetMode === 'urgencias') {
+        const acute = pool.filter(
+          (c) =>
+            c.solution?.optimalTreatment?.hospitalizationDecision !== 'Ambulatorio' ||
+            /Nivel I\b|Nivel II\b|Nivel III\b/.test(c.patientInfo?.triageLevel || '')
+        );
+        return acute.length > 0 ? acute : pool;
+      }
+      if (targetMode === 'principiante') {
+        const mild = pool.filter(
+          (c) =>
+            c.mode === 'principiante' ||
+            c.mode === 'medico_general' ||
+            c.solution?.optimalTreatment?.hospitalizationDecision === 'Ambulatorio'
+        );
+        return mild.length > 0 ? mild : pool;
+      }
+      return pool;
+    };
+
+    // Serve unseen curated cases first matching requested specialty/mode so all curated cases rotate without wasting API quota
+    const excludeSet = new Set<string>(excludeCaseIds);
+    if (excludeCaseId) excludeSet.add(excludeCaseId);
+
+    const unseenMatches = ALL_CURATED_CASES.filter((c) => {
+      if (excludeSet.has(c.id)) return false;
+      if (specialty !== 'aleatorio' && c.specialty !== specialty) return false;
+      return c.mode === mode;
+    });
+
+    const unseenAnyModeInSpec =
+      specialty !== 'aleatorio'
+        ? filterCompatibleFallbackPool(
+            ALL_CURATED_CASES.filter((c) => !excludeSet.has(c.id) && c.specialty === specialty),
+            mode
+          )
+        : [];
+
+    if (unseenMatches.length > 0) {
+      const picked = unseenMatches[Math.floor(Math.random() * unseenMatches.length)];
+      return res.json({ case: { ...picked, mode }, source: 'preset' });
+    }
+
+    if (unseenAnyModeInSpec.length > 0) {
+      const picked = unseenAnyModeInSpec[Math.floor(Math.random() * unseenAnyModeInSpec.length)];
+      return res.json({ case: { ...picked, mode }, source: 'preset' });
+    }
+
+    // Try AI generation once unseen curated matches are exhausted (and quota is available)
     if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'MY_GEMINI_API_KEY') {
       try {
-        const specialtyLabel = SPECIALTY_LABELS[specialty] || specialty;
+        const allSpecialties = Object.keys(AI_CLINICAL_SEEDS) as Array<Exclude<Specialty, 'aleatorio'>>;
+        const targetSpecialty: Exclude<Specialty, 'aleatorio'> =
+          specialty === 'aleatorio'
+            ? allSpecialties[Math.floor(Math.random() * allSpecialties.length)]
+            : specialty;
+
+        const specialtyLabel = SPECIALTY_LABELS[targetSpecialty] || targetSpecialty;
         const modeGuidance = MODE_DESCRIPTIONS[mode] || MODE_DESCRIPTIONS.medico_general;
 
-        const specialtyPrompt =
-          specialty === 'aleatorio'
-            ? 'Especialidad: Selecciona de forma variada cualquier especialidad clínica (Cardiología, Neurología, Gastroenterología, Pediatría, Nefrología, Neumología, Ginecología, Medicina Interna, Infectología, Endocrinología, Traumatología, Dermatología, Psiquiatría o Cirugía).'
-            : `ESPECIALIDAD OBLIGATORIA: ${specialtyLabel} (campo JSON "specialty" debe ser exactamente "${specialty}"). El paciente y su diagnóstico DEBEN pertenecer estrictamente a esta especialidad.`;
+        const normExcluded = excludeDiagnoses.map(normalizeDiag);
+        const complexSeeds = AI_CLINICAL_SEEDS[targetSpecialty] || [];
+        const outpatientSeeds = AI_OUTPATIENT_SEEDS[targetSpecialty] || [];
+        const seedCandidates =
+          mode === 'principiante'
+            ? outpatientSeeds
+            : mode === 'medico_general'
+              ? [...outpatientSeeds, ...complexSeeds.slice(0, 2)]
+              : complexSeeds;
+        const freshSeeds = seedCandidates.filter((seed) => {
+          const normSeed = normalizeDiag(seed);
+          const seedMain = normSeed.split('(')[0].trim();
+          return !normExcluded.some(
+            (ex) => ex.includes(seedMain.slice(0, 14)) || normSeed.includes(ex.slice(0, 14))
+          );
+        });
+        const activeSeeds = freshSeeds.length > 0 ? freshSeeds : seedCandidates;
+        const chosenSeed =
+          activeSeeds.length > 0
+            ? activeSeeds[Math.floor(Math.random() * activeSeeds.length)]
+            : `Patología clínica relevante y poco repetida de ${specialtyLabel}`;
+
+        const specialtyPrompt = `ESPECIALIDAD OBLIGATORIA: ${specialtyLabel} (campo JSON "specialty" debe ser exactamente "${targetSpecialty}").
+PATOLOGÍA ASIGNADA PARA ESTE CASO (NO LA CAMBIES POR OTRA REPETITIVA): "${chosenSeed}".`;
 
         const antiRepeatPrompt =
           excludeDiagnoses.length > 0
-            ? `\nPROHIBIDO REPETIR PATOLOGÍAS RECIENTES: El alumno ya resolvió o vio recientemente: ${excludeDiagnoses.slice(-12).join(', ')}. Elige una enfermedad clínica COMPLETAMENTE DIFERENTE.`
+            ? `\nPROHIBIDO REPETIR PATOLOGÍAS RECIENTES: El alumno ya resolvió o vio recientemente: ${excludeDiagnoses.slice(-18).join(', ')}. El diagnóstico principal DEBE corresponder a "${chosenSeed}" y ser completamente distinto a los anteriores.`
             : '';
 
         const systemInstruction = `Eres un equipo de médicos internistas, urgenciólogos y profesores universitarios de medicina.
 Tu objetivo es diseñar un caso clínico interactivo, ultra realista, coherente y desafiante para el simulador médico "MEDICAL CASE SIMULATOR".
-Sigue guías médicas internacionales vigentes (OMS, OPS, AHA, NICE, IDSA).
+Sigue la normativa clínica nacional nicaragüense (MINSA / Lista Básica de Medicamentos) y guías médicas internacionales vigentes (OMS, OPS, AHA, NICE, IDSA).
 REGLAS INQUEBRANTABLES:
-1. Respeta ESTRICTAMENTE la especialidad y la modalidad de dificultad solicitadas.
+1. Respeta ESTRICTAMENTE la especialidad ("${targetSpecialty}"), la patología asignada ("${chosenSeed}") y la modalidad de dificultad solicitadas.
 2. En "patientInfo.consultReason" escribe ÚNICAMENTE síntomas en lenguaje sencillo del paciente (NUNCA reveles el diagnóstico ni pistas obvias en el motivo de consulta).
 3. En "patientInfo.currentIllness" incluye una línea temporal clara (qué pasó el día anterior, hace horas o días, qué comió/tomó) y antecedentes pertinentes (incluyendo contexto sexual/gineco-obstétrico en nonPathological si es relevante).
 4. En "studiesPool" incluye tanto las pruebas confirmatorias como estudios secundarios relacionados (por ejemplo TAC, radiografía o ultrasonido que detecten afecciones anatómicas relacionadas, derrames reactivos, inflamación perivisceral, congestión o signos indirectos).
 5. NUNCA inventes valores de laboratorio incompatibles con la fisiopatología.
 Genera la respuesta estrictamente en formato JSON válido.`;
 
+        const uniqueCaseId = `case-ai-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
         const prompt = `Genera un nuevo caso clínico médico ficticio y original (semilla aleatoria: ${Date.now()}-${Math.floor(Math.random() * 100000)}).
 ${modeGuidance}
 ${specialtyPrompt}${antiRepeatPrompt}
 
-El JSON debe tener EXACTAMENTE la siguiente estructura:
+El JSON debe tener EXACTAMENTE la siguiente estructura (SIN comentarios ni texto fuera del JSON; asegúrate de que "vitalSigns.glasgow" se correlacione estrictamente con "currentIllness" y el examen neurológico: 15 si alerta/orientado, 12-14 si confusión/letargo/afasia, ≤11 si estupor/coma):
 {
-  "id": "case-ai-${Date.now()}",
+  "id": "${uniqueCaseId}",
   "mode": "${mode}",
-  "specialty": "${specialty === 'aleatorio' ? 'medicina_interna' : specialty}",
+  "specialty": "${targetSpecialty}",
   "patientInfo": {
     "name": "Nombre y apellidos completos del paciente",
     "age": 42,
@@ -166,7 +573,7 @@ El JSON debe tener EXACTAMENTE la siguiente estructura:
     {
       "id": "std-1",
       "category": "Laboratorio" | "Imagen" | "Gabinete y Trazados",
-      "subcategory": "Hematología" | "Bioquímica" | "Electrolitos" | "Función Hepática" | "Inflamación e Infección" | "Cardiovascular" | "Urinario" | "Gases" | "Microbiología / Serología" | "Radiología" | "Ecografía" | "Tomografía" | "Electrocardiograma",
+      "subcategory": "Hematología" | "Bioquímica" | "Electrolitos" | "Función Hepática" | "Inflamación e Infección" | "Vitaminas y Nutrición" | "Cardiovascular" | "Urinario" | "Gases" | "Microbiología / Serología" | "Radiología" | "Ecografía" | "Tomografía" | "Electrocardiograma" | "Electromiografía y Neurofisiología" | "Función Pulmonar y Audiología" | "Endoscopia y Broncoscopia",
       "name": "Nombre exacto del estudio",
       "result": "Valores cuantitativos con unidades exactas",
       "referenceRange": "Rango de referencia normal",
@@ -204,23 +611,16 @@ El JSON debe tener EXACTAMENTE la siguiente estructura:
   "internalPersonaPrompt": "Instrucción de cómo responde el paciente en el interrogatorio sin revelar el diagnóstico médico."
 }`;
 
-        const aiCall = ai.models
-          .generateContent({
-            model: 'gemini-4-hydrogen',
-            contents: prompt,
-            config: {
-              systemInstruction,
-              responseMimeType: 'application/json',
-              thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-            },
-          })
-          .catch(() => null);
+        const rawResponseText = await callGeminiWithFallback({
+          contents: prompt,
+          systemInstruction,
+          responseMimeType: 'application/json',
+          thinkingLevel: ThinkingLevel.LOW,
+          timeoutMs: 28000,
+        });
 
-        const timerPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 18000));
-        const response: any = await Promise.race([aiCall, timerPromise]);
-
-        if (response && response.text) {
-          const rawText = response.text.replace(/```json/gi, '').replace(/```/g, '').trim();
+        if (rawResponseText) {
+          const rawText = extractJsonObject(rawResponseText);
           const parsed = JSON.parse(rawText) as ClinicalCase;
           if (
             parsed.patientInfo &&
@@ -229,58 +629,60 @@ El JSON debe tener EXACTAMENTE la siguiente estructura:
             Array.isArray(parsed.physicalExamPool) &&
             parsed.physicalExamPool.length > 0
           ) {
+            parsed.id = uniqueCaseId;
             parsed.mode = mode;
-            if (specialty !== 'aleatorio') {
-              parsed.specialty = specialty;
-            }
+            parsed.specialty = targetSpecialty;
             return res.json({ case: parsed, source: 'ai' });
           }
         }
       } catch {
-        // Fallback to curated library below
+        // Fallback silencioso a biblioteca curada
       }
     }
 
-    // Fallback inteligente con rotación de baraja anti-repetición:
-    const excludeSet = new Set<string>(excludeCaseIds);
-    if (excludeCaseId) excludeSet.add(excludeCaseId);
+    // Fallback inteligente con rotación de baraja anti-repetición (ordenado por menor recencia):
 
-    let candidatePool: ClinicalCase[] = [];
+    let chosenBase: ClinicalCase | null = null;
 
     if (specialty !== 'aleatorio') {
-      const bySpecialty = ALL_CURATED_CASES.filter((c) => c.specialty === specialty);
+      const bySpecialty = filterCompatibleFallbackPool(
+        ALL_CURATED_CASES.filter((c) => c.specialty === specialty),
+        mode
+      );
       if (bySpecialty.length > 0) {
         const unseenInSpec = bySpecialty.filter((c) => !excludeSet.has(c.id));
         if (unseenInSpec.length > 0) {
           const unseenSpecMode = unseenInSpec.filter((c) => c.mode === mode);
-          candidatePool = unseenSpecMode.length > 0 ? unseenSpecMode : unseenInSpec;
+          const pool = unseenSpecMode.length > 0 ? unseenSpecMode : unseenInSpec;
+          chosenBase = pool[Math.floor(Math.random() * pool.length)];
         } else {
-          // Ya jugó los casos de esa especialidad: evita repetir el último inmediato si hay >= 2
-          const withoutLast = bySpecialty.filter((c) => c.id !== excludeCaseId);
-          candidatePool = withoutLast.length > 0 ? withoutLast : bySpecialty;
+          const specModePool = bySpecialty.filter((c) => c.mode === mode);
+          chosenBase = pickLeastRecentlySeen(
+            specModePool.length > 1 ? specModePool : bySpecialty,
+            excludeCaseIds,
+            excludeCaseId
+          );
         }
       }
     }
 
-    if (candidatePool.length === 0) {
-      // Aleatorio o sin filtro de especialidad: prioriza todos los NO vistos de los 23 casos
-      const unseenAll = ALL_CURATED_CASES.filter((c) => !excludeSet.has(c.id));
+    if (!chosenBase) {
+      const compatibleAll = filterCompatibleFallbackPool(ALL_CURATED_CASES, mode);
+      const unseenAll = compatibleAll.filter((c) => !excludeSet.has(c.id));
       if (unseenAll.length > 0) {
         const unseenByMode = unseenAll.filter((c) => c.mode === mode);
-        if (unseenByMode.length > 0) {
-          candidatePool = unseenByMode;
-        } else {
-          // Si ya agotó los casos nativos de esa modalidad, amplía a todos los no vistos
-          candidatePool = unseenAll;
-        }
+        const pool = unseenByMode.length > 0 ? unseenByMode : unseenAll;
+        chosenBase = pool[Math.floor(Math.random() * pool.length)];
       } else {
-        // Baraja completa jugada: reinicia evitando repetir exactamente el último caso inmediato
-        const withoutLast = ALL_CURATED_CASES.filter((c) => c.id !== excludeCaseId);
-        candidatePool = withoutLast.length > 0 ? withoutLast : ALL_CURATED_CASES;
+        const allByMode = compatibleAll.filter((c) => c.mode === mode);
+        chosenBase = pickLeastRecentlySeen(
+          allByMode.length > 1 ? allByMode : compatibleAll,
+          excludeCaseIds,
+          excludeCaseId
+        );
       }
     }
 
-    const chosenBase = candidatePool[Math.floor(Math.random() * candidatePool.length)];
     const chosen: ClinicalCase = {
       ...chosenBase,
       mode,
@@ -308,30 +710,41 @@ app.post('/api/patient-chat', async (req: Request, res: Response) => {
         const conversationPrompt = `Historial completo de la consulta médica hasta este momento:
 ${history
   .slice(-16)
-  .map((m) => `${m.sender === 'doctor' ? 'Médico' : 'Paciente'}: ${m.text}`)
+  .map((m) =>
+    m.sender === 'doctor'
+      ? `Médico: ${m.text}`
+      : m.sender === 'system'
+      ? `Evento Clínico: ${m.text}`
+      : `Paciente: ${m.text}`
+  )
   .join('\n')}
 
 Pregunta actual del Médico: ${userMessage}
 Paciente (OBLIGATORIO responder en PRIMERA PERSONA del singular — "yo siento", "me empezó", "tuve", "tengo" — JAMÁS en tercera persona ni narrando como expediente clínico; si es un bebé/niño pequeño, responde como su madre/padre en primera persona):`;
 
-        const chatCall = ai.models
-          .generateContent({
-            model: 'gemini-4-hydrogen',
-            contents: conversationPrompt,
-            config: {
-              systemInstruction,
-              thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-            },
-          })
-          .catch(() => null);
+        const rawReply = await callGeminiWithFallback({
+          contents: conversationPrompt,
+          systemInstruction,
+          thinkingLevel: ThinkingLevel.LOW,
+          timeoutMs: 10000,
+        });
 
-        const timerPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 10000));
-        const response: any = await Promise.race([chatCall, timerPromise]);
-
-        const rawReply = response?.text?.trim();
         if (rawReply) {
           const reply = ensureFirstPersonReply(rawReply, payload.patientInfo);
-          return res.json({ reply });
+          const prevPatientNormalized = history
+            .filter((m) => m.sender === 'patient')
+            .map((m) =>
+              m.text
+                .toLowerCase()
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/[¿?¡!.,;:()"'«»]/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim()
+            );
+          if (!isSimilarToPrevious(reply, prevPatientNormalized)) {
+            return res.json({ reply });
+          }
         }
       } catch {
         // Proceder al motor determinista contextual
@@ -365,17 +778,20 @@ app.post('/api/evaluate-case', async (req: Request, res: Response) => {
         const studyNames = (userSubmission.unlockedStudies || [])
           .map((id) => caseData.studiesPool?.find((s) => s.id === id)?.name || id)
           .join(', ');
-        const keyAbnormalExams = (caseData.physicalExamPool || [])
-          .filter((e) => e.isAbnormal)
+        const allAbnExams = (caseData.physicalExamPool || []).filter((e) => e.isAbnormal);
+        const nativeAbnExams = allAbnExams.filter((e) => !e.id.startsWith('std-pe-'));
+        const keyAbnormalExams = (nativeAbnExams.length > 0 ? nativeAbnExams : allAbnExams)
           .map((e) => e.name)
           .join(', ');
-        const keyAbnormalStudies = (caseData.studiesPool || [])
-          .filter((s) => s.isAbnormal)
+
+        const allAbnStudies = (caseData.studiesPool || []).filter((s) => s.isAbnormal);
+        const nativeAbnStudies = allAbnStudies.filter((s) => !s.id.startsWith('hosp-'));
+        const keyAbnormalStudies = (nativeAbnStudies.length > 0 ? nativeAbnStudies : allAbnStudies.slice(0, 4))
           .map((s) => s.name)
           .join(', ');
 
         const evaluationPrompt = `Actúa como un tribunal académico médico universitario sumamente didáctico (Médico Internista, Urgenciólogo, Farmacólogo Clínico y Profesor de Medicina).
-Debes evaluar exhaustivamente y enseñar al médico usuario qué hizo bien, POR QUÉ obtuvo exactamente cada puntaje y QUÉ LE FALTÓ en cada apartado.
+Debes evaluar exhaustivamente con criterio justo basado en **Normativa Nicaragüense (MINSA / Lista Básica de Medicamentos, AIEPI, Protocolos de Atención Primaria, Dengue y Obstetricia)** respaldado por **Guías Internacionales vigentes (OMS/OPS, AHA/ESC, IDSA, ADA, KDIGO, GINA/GOLD, NICE)**, enseñando al médico usuario qué hizo bien, POR QUÉ obtuvo cada puntaje y QUÉ LE FALTÓ en cada apartado.
 
 DATOS DEL CASO CLÍNICO:
 - Paciente: ${caseData.patientInfo?.name || 'Paciente'}, ${caseData.patientInfo?.age || 35} años, ${caseData.patientInfo?.sex || 'Masculino'}
@@ -384,7 +800,7 @@ DATOS DEL CASO CLÍNICO:
 - Claves de Descarte: ${(caseData.solution?.criticalRulingOutFactors || []).join(' | ')}
 - Fisiopatología clave: ${caseData.solution?.pathophysiology || ''}
 - Maniobras físicas con hallazgos alterados clave: ${keyAbnormalExams || 'Ver catálogo'}
-- Estudios con hallazgos alterados clave: ${keyAbnormalStudies || 'Ver catálogo'}
+- Estudios confirmatorios clave del caso: ${keyAbnormalStudies || 'Ver catálogo'}
 - Tratamiento Óptimo Recomendado: ${JSON.stringify(caseData.solution?.optimalTreatment || {})}
 - Alertas Críticas de Seguridad: ${(caseData.solution?.criticalSafetyAlerts || []).join(' | ')}
 - Alergias del paciente: ${(caseData.background?.allergies || []).join(', ')}
@@ -402,11 +818,15 @@ DESEMPEÑO REAL DEL USUARIO:
 - Criterios de referencia propuestos: "${userSubmission.referralCriteria || 'Sin registrar'}"
 - Seguimiento propuesto: "${userSubmission.followUpPlan || 'Sin registrar'}"
 
-RÚBRICA ESTRICTA DE 100 PUNTOS Y FARMACOLOGÍA CLÍNICA (NO REGALAR PUNTOS NI INVENTAR FALSOS POSITIVOS):
-- Si un apartado está vacío o tiene 0 acciones reales (0 preguntas, 0 exploraciones, 0 estudios, sin diagnóstico, sin diferenciales, sin tratamiento), asigna ESTRICTAMENTE 0 puntos en ese apartado.
-- Si el usuario desbloqueó casi todo el examen físico o casi todos los estudios de forma indiscriminada ("escopetazo diagnóstico"), penaliza con 3 a 4 puntos y explícalo.
-- ALERGIAS A PENICILINA / BETALACTÁMICOS (Guías AAAAI/ACAAI 2022 y NICE): En pacientes alérgicos a la penicilina, SÍ son error crítico las penicilinas (amoxicilina, ampicilina, piperacilina, penicilina) y cefalosporinas de cadena lateral R1 compartida (cefalexina, cefadroxilo, cefaclor). PERO los macrólidos (eritromicina, azitromicina), fluoroquinolonas (levofloxacino), monobactámicos (aztreonam) y carbapenémicos (meropenem, imipenem, ertapenem; <1% reactividad cruzada) NO deben marcarse como error crítico de anafilaxia por alergia a penicilina.
-- CLÁUSULAS DE SUSPENSIÓN: Si en medidas generales el usuario escribe "Suspender [fármaco]" o "Evitar [fármaco]" (ej. suspender Enalapril/Naproxeno/Carbamazepina), ESO ES CORRECTO, jamás lo marques como prescripción del fármaco.
+REGLAS DE EQUIVALENCIA NORMATIVA (NICARAGUA MINSA + INTERNACIONAL) Y RÚBRICA DE 100 PUNTOS:
+- SINÓNIMOS Y SIGLAS DIAGNÓSTICAS: Acepta siglas médicas y nomenclatura regional equivalente con puntaje completo si identifican correctamente la patología central (ej. IVU/ITU = Infección de Vías Urinarias/Cistitis; EDAS/GEPI = Gastroenteritis aguda; ACV/EVC/Ictus; IAMCEST/SCACEST/IMA ST elevado; NAC; LRA/IRA; CAD; TEP; HTA; DM2; VPPB; ERGE; SOP; OMA; SSJ; Tiña/Dermatofitosis; Dengue Grupo B2 = Dengue con signos de alarma). No exijas que el médico escriba paréntesis de estadiaje literal (ej. "Killip II" o "Roma IV") para otorgar 23-25 pts si el diagnóstico central es correcto.
+- EQUIVALENCIAS TERAPÉUTICAS (LISTA BÁSICA MINSA NICARAGUA + GUÍAS INTERNACIONALES): Da crédito completo cuando el médico prescriba equivalentes terapéuticos válidos de la misma clase o primera línea MINSA/OMS (ej. Acetaminofén=Paracetamol o Metamizol fuera de Dengue/sangrado; Enalapril=Captopril/Lisinopril/Losartán/Irbesartán en HTA; Omeprazol=Pantoprazol/Esomeprazol; Beclometasona=Budesonida/Fluticasona; Dicloxacilina=Cefalexina/Clindamicina; Nitrofurantoína=TMP-SMX/Fosfomicina/Cefalexina en IVU baja; Aciclovir=Valaciclovir; Clopidogrel=Ticagrelor; Estreptoquinasa=Alteplasa; Loratadina=Cetirizina/Clorfeniramina; Sulfato ferroso=Hierro polimaltosado; Fenitoína DFH=Levetiracetam; Hidralazina/Nifedipino/Labetalol/MgSO4 en Preeclampsia; Suero Oral/SRO y SSN 0.9%/Hartmann incluso si se anotaron en Medidas Generales).
+- ESTUDIOS CONFIRMATORIOS: Evalúa sobre los estudios confirmatorios clave del caso; NO penalices si el médico no pidió estudios secundarios adicionales del menú general hospitalario.
+- ANAMNESIS ADAPTADA: En cuadros focalizados simples de primer nivel (ej. esguince, cistitis simple, tiña, faringoamigdalitis), un interrogatorio dirigido y eficiente (3-4 preguntas clave con signos de alarma y alergias) merece 13-15/15 sin exigir preguntas irrelevantes (como viajes o vida sexual).
+- APARTADOS VACÍOS Y ESCOPETAZO: Si un apartado está vacío o tiene 0 acciones reales, asigna 0 puntos en ese apartado. Si el usuario desbloqueó casi todo el examen físico o casi todos los estudios sin discriminación ("escopetazo diagnóstico"), penaliza 3 a 4 puntos.
+- ALERGIAS A PENICILINA / BETALACTÁMICOS (AAAAI/ACAAI 2022 y NICE): En alérgicos a penicilina, SÍ son error crítico las penicilinas y cefalosporinas de cadena lateral R1 compartida (cefalexina, cefadroxilo, cefaclor). Macrólidos, fluoroquinolonas, aztreonam y carbapenémicos (meropenem, imipenem, ertapenem) NO deben marcarse como error anafiláctico por alergia a penicilina.
+- CLÁUSULAS DE SUSPENSIÓN: "Suspender/Evitar [fármaco]" en medidas generales es correcto, jamás lo cuentes como prescripción.
+- USO RACIONAL Y CONDUCTA INTERMEDIA: Penaliza 1–2 pts antibióticos injustificados en cuadros virales/mecánicos o TAC/RMN innecesaria de entrada en cuadros ambulatorios simples. Otorga crédito parcial (2/3 en destino) si eligió Observación en Urgencias en lugar de Hospitalización o viceversa, y 0/3 solo si mandó a casa (Ambulatorio) un cuadro que requería Hospitalización/UCI.
 1. anamnesis (0 a 15 pts)
 2. physicalExam (0 a 15 pts)
 3. studiesInterpretation (0 a 15 pts)
@@ -492,25 +912,15 @@ Devuelve estrictamente este JSON válido con explicaciones claras y didácticas 
   "resolvedAt": "${new Date().toISOString()}"
 }`;
 
-        const geminiCall = ai.models
-          .generateContent({
-            model: 'gemini-4-hydrogen',
-            contents: evaluationPrompt,
-            config: {
-              responseMimeType: 'application/json',
-              thinkingConfig: { thinkingLevel: ThinkingLevel.MEDIUM },
-            },
-          })
-          .catch(() => null);
+        const rawEvalText = await callGeminiWithFallback({
+          contents: evaluationPrompt,
+          responseMimeType: 'application/json',
+          thinkingLevel: ThinkingLevel.MEDIUM,
+          timeoutMs: 11000,
+        });
 
-        const timerPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 11000));
-        const response: any = await Promise.race([geminiCall, timerPromise]);
-
-        if (response && response.text) {
-          const cleanText = response.text
-            .replace(/```json/gi, '')
-            .replace(/```/g, '')
-            .trim();
+        if (rawEvalText) {
+          const cleanText = extractJsonObject(rawEvalText);
 
           const parsed = JSON.parse(cleanText) as EvaluationResult;
           if (parsed && typeof parsed.totalScore === 'number' && parsed.breakdown) {
@@ -547,7 +957,7 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, () => {
+  app.listen(PORT, '0.0.0.0', () => {
     console.log(`Medical Case Simulator Server running on port ${PORT}`);
   });
 }

@@ -466,7 +466,7 @@ export const PRESET_CASES: ClinicalCase[] = [
           'Interconsulta urgente a Cirujano General de guardia',
           'Acceso venoso periférico de calibre 18G',
         ],
-        hospitalizationDecision: 'Hospitalización en Sala',
+        hospitalizationDecision: 'Quirófano / Cirugía de Urgencia',
         referralCriteria: [
           'Indicación formal de quirófano urgente (Apendicectomía urgente < 12-24h para prevenir perforación y sepsis)',
         ],

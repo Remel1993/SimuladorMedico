@@ -54,20 +54,10 @@ import {
   Flame,
   ShieldCheck,
   AlertTriangle,
-  CheckSquare,
-  Square,
 } from 'lucide-react';
 
 const URGENCIAS_WINDOW_SECONDS = 8 * 60;
 const EXAMEN_WINDOW_SECONDS = 12 * 60;
-
-const ABCDE_ITEMS = [
-  { id: 'A', label: 'A · Vía Aérea / Cervical' },
-  { id: 'B', label: 'B · Ventilación / O₂' },
-  { id: 'C', label: 'C · Circulación / Vías IV' },
-  { id: 'D', label: 'D · Déficit Neurológico' },
-  { id: 'E', label: 'E · Exposición / Alergias' },
-];
 
 export default function App() {
   // General Interface vs Active Clinical Simulation
@@ -121,7 +111,6 @@ export default function App() {
 
   // Consultation Timer & Mode Mechanics
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [abcdeChecked, setAbcdeChecked] = useState<string[]>([]);
   const examAutoSubmittedRef = useRef(false);
   const latestFinishRef = useRef<() => void>(() => {});
   const chatAbortRef = useRef<AbortController | null>(null);
@@ -235,7 +224,6 @@ export default function App() {
     setEvaluationResult(null);
     setPendingOutcome(null);
     setElapsedSeconds(0);
-    setAbcdeChecked([]);
     examAutoSubmittedRef.current = false;
 
     const isPediatric = enriched.patientInfo.age < 12;
@@ -580,12 +568,6 @@ export default function App() {
     }
   }, [elapsedSeconds, activeView, evaluationResult, isEvaluating, currentCase.mode]);
 
-  const toggleAbcdeStep = (id: string) => {
-    setAbcdeChecked((prev) =>
-      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
-    );
-  };
-
   const isUrgenciasMode = currentCase.mode === 'urgencias';
   const isExamenMode = currentCase.mode === 'examen';
   const urgenciasRemaining = Math.max(0, URGENCIAS_WINDOW_SECONDS - elapsedSeconds);
@@ -656,7 +638,7 @@ export default function App() {
           />
 
           {/* Patient Identity Banner */}
-          <PatientBanner caseData={currentCase} />
+          <PatientBanner caseData={currentCase} revealSpecialty={Boolean(evaluationResult)} />
 
           {/* Workspace Container */}
           <main className="flex-1 max-w-7xl w-full min-w-0 mx-auto px-3 sm:px-4 py-4 sm:py-5 space-y-4 sm:space-y-5">
@@ -739,50 +721,13 @@ export default function App() {
           </div>
         </div>
 
-        {/* Mode-Specific Interactive Strip: Urgencias ABCDE Checklist or Modo Examen Strict Notice */}
-        {!evaluationResult && isUrgenciasMode && (
-          <div className="bg-gradient-to-r from-amber-950/40 via-[#07132B] to-[#07132B] border border-amber-600/50 rounded-xl p-3 sm:p-3.5 space-y-2 shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-              <div className="flex items-center gap-2 text-amber-300 font-bold">
-                <Flame className="w-4 h-4 shrink-0" />
-                <span>Protocolo Rápido de Estabilización ABCDE (Urgencias)</span>
-              </div>
-              <span className="text-[11px] font-mono text-amber-200">
-                Completado: {abcdeChecked.length}/5
-              </span>
-            </div>
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 no-scrollbar">
-              {ABCDE_ITEMS.map((step) => {
-                const checked = abcdeChecked.includes(step.id);
-                return (
-                  <button
-                    key={step.id}
-                    type="button"
-                    onClick={() => toggleAbcdeStep(step.id)}
-                    className={`px-2.5 py-1.5 rounded-lg border text-[11px] font-medium whitespace-nowrap shrink-0 flex items-center gap-1.5 transition-colors cursor-pointer ${
-                      checked
-                        ? 'bg-emerald-950/60 border-emerald-500/70 text-emerald-200'
-                        : 'bg-[#040B1B] border-blue-900/70 text-blue-100 hover:border-amber-500/60'
-                    }`}
-                  >
-                    {checked ? (
-                      <CheckSquare className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                    ) : (
-                      <Square className="w-3.5 h-3.5 text-amber-400/80 shrink-0" />
-                    )}
-                    <span>{step.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-            {urgenciasRemaining === 0 && (
-              <div className="text-[11px] text-rose-200 flex items-center gap-1.5 pt-0.5">
-                <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
-                <span>
-                  Ventana de oro (8 min) superada: defina inmediatamente su diagnóstico y conducta terapéutica en las pestañas 5 y 6.
-                </span>
-              </div>
-            )}
+        {/* Mode-Specific Notice: Urgencias 8-min Golden Window Alert or Modo Examen Strict Notice */}
+        {!evaluationResult && isUrgenciasMode && urgenciasRemaining === 0 && (
+          <div className="bg-rose-950/40 border border-rose-600/60 rounded-xl px-3.5 py-2.5 text-xs text-rose-200 flex items-center gap-2 shadow-sm">
+            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>
+              Ventana de oro (8 min) superada: defina inmediatamente su diagnóstico y conducta terapéutica en las pestañas 5 y 6.
+            </span>
           </div>
         )}
 

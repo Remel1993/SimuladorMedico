@@ -18,6 +18,7 @@ import { CalculatorsModal } from './components/CalculatorsModal';
 import { ClinicalOutcomeModal } from './components/ClinicalOutcomeModal';
 
 import { applyStatIntervention, StatApplyInput } from './utils/statStabilization';
+import { generateContextualPatientReply, PatientChatPayload } from '../serverPatientChat';
 
 import { ALL_CURATED_CASES } from './data/allCases';
 import { enrichCaseWithHospitalCatalog } from './utils/studiesCatalog';
@@ -293,6 +294,29 @@ export default function App() {
     setMessages(updatedMessages);
     setIsChatLoading(true);
 
+    const chatPayload: PatientChatPayload = {
+      history: updatedMessages.slice(0, -1),
+      userMessage: text,
+      patientPersona: currentCase.internalPersonaPrompt,
+      patientInfo: currentCase.patientInfo,
+      vitalSigns: currentCase.vitalSigns,
+      liveVitalSigns,
+      appliedStatInterventions: statInterventions.map((s) => ({
+        label: s.label,
+        drug: s.drug,
+        dose: s.dose,
+        route: s.route,
+        effectSeverity: s.effectSeverity,
+        patientFeelingNote: s.patientFeelingNote,
+        deltasSummary: s.deltas.map((d) => `${d.metric} ${d.before}->${d.after}`).join(', '),
+      })),
+      background: currentCase.background,
+      clinicalClues: currentCase.solution?.keyClinicalClues,
+      characteristicSymptoms: currentCase.solution?.characteristicSignsSymptoms,
+      specialty: currentCase.specialty,
+      caseId: currentCase.id,
+    };
+
     chatAbortRef.current?.abort();
     const controller = new AbortController();
     chatAbortRef.current = controller;
@@ -300,34 +324,13 @@ export default function App() {
     const timeoutId = setTimeout(() => {
       timedOut = true;
       controller.abort();
-    }, 15000);
+    }, 10000);
 
     try {
       const response = await fetch('/api/patient-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          history: updatedMessages,
-          userMessage: text,
-          patientPersona: currentCase.internalPersonaPrompt,
-          patientInfo: currentCase.patientInfo,
-          vitalSigns: currentCase.vitalSigns,
-          liveVitalSigns,
-          appliedStatInterventions: statInterventions.map((s) => ({
-            label: s.label,
-            drug: s.drug,
-            dose: s.dose,
-            route: s.route,
-            effectSeverity: s.effectSeverity,
-            patientFeelingNote: s.patientFeelingNote,
-            deltasSummary: s.deltas.map((d) => `${d.metric} ${d.before}->${d.after}`).join(', '),
-          })),
-          background: currentCase.background,
-          clinicalClues: currentCase.solution?.keyClinicalClues,
-          characteristicSymptoms: currentCase.solution?.characteristicSignsSymptoms,
-          specialty: currentCase.specialty,
-          caseId: currentCase.id,
-        }),
+        body: JSON.stringify(chatPayload),
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
@@ -340,8 +343,8 @@ export default function App() {
       if (activeChatCaseIdRef.current !== requestCaseId) return;
 
       const patientReply =
-        data.reply ||
-        'Disculpe doctor, me siento bastante mal y débil. ¿Me podría repetir eso con otras palabras?';
+        (typeof data?.reply === 'string' && data.reply.trim()) ||
+        generateContextualPatientReply(chatPayload);
 
       setMessages((prev) => [
         ...prev,
@@ -357,12 +360,14 @@ export default function App() {
       if (activeChatCaseIdRef.current !== requestCaseId) return;
       if (err?.name === 'AbortError' && !timedOut) return;
 
+      const localFallbackReply = generateContextualPatientReply(chatPayload);
+
       setMessages((prev) => [
         ...prev,
         {
-          id: `msg-err-${Date.now()}`,
+          id: `msg-pat-${Date.now()}`,
           sender: 'patient',
-          text: 'Disculpe doctor, me distraje un segundo con el malestar que traigo. ¿Me puede repetir su pregunta?',
+          text: localFallbackReply,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         },
       ]);

@@ -51,7 +51,7 @@ export interface PhysicalExamFinding {
 export interface ComplementaryStudy {
   id: string;
   category: 'Laboratorio' | 'Imagen' | 'Gabinete y Trazados';
-  subcategory: 'Hematología' | 'Bioquímica' | 'Electrolitos' | 'Función Hepática' | 'Inflamación e Infección' | 'Cardiovascular' | 'Urinario' | 'Gases' | 'Microbiología / Serología' | 'Radiología' | 'Ecografía' | 'Tomografía' | 'Electrocardiograma';
+  subcategory: 'Hematología' | 'Bioquímica' | 'Electrolitos' | 'Función Hepática' | 'Inflamación e Infección' | 'Vitaminas y Nutrición' | 'Cardiovascular' | 'Urinario' | 'Gases' | 'Microbiología / Serología' | 'Radiología' | 'Ecografía' | 'Tomografía' | 'Electrocardiograma' | 'Electromiografía y Neurofisiología' | 'Función Pulmonar y Audiología' | 'Endoscopia y Broncoscopia';
   name: string;
   result: string;
   referenceRange?: string;
@@ -117,6 +117,31 @@ export interface ChatMessage {
   timestamp: string;
 }
 
+export type StatEffectSeverity = 'mejoria' | 'parcial' | 'sin_cambio' | 'reaccion_adversa';
+
+export interface StatVitalDelta {
+  metric: string;
+  before: string;
+  after: string;
+  direction: 'up' | 'down' | 'neutral';
+  deltaText: string;
+}
+
+export interface StatInterventionRecord {
+  id: string;
+  presetId?: string;
+  label: string;
+  drug: string;
+  dose: string;
+  route: string;
+  appliedAt: string;
+  elapsedSeconds: number;
+  effectSeverity: StatEffectSeverity;
+  physiologicalEffectSummary: string;
+  deltas: StatVitalDelta[];
+  patientFeelingNote: string;
+}
+
 export interface UserEvaluationInput {
   primaryDiagnosis: string;
   differentialDiagnoses: string[];
@@ -132,6 +157,26 @@ export interface UserEvaluationInput {
   questionCount: number;
   doctorQuestions?: string[];
   timeSpentSeconds: number;
+  statInterventions?: StatInterventionRecord[];
+  baselineVitalSigns?: VitalSigns;
+  finalVitalSigns?: VitalSigns;
+}
+
+export interface StatInterventionAuditItem {
+  drug: string;
+  dose: string;
+  route: string;
+  verdict: 'adecuado' | 'parcial_o_sin_efecto' | 'riesgo_o_excesivo';
+  comment: string;
+  deltaSummary: string;
+}
+
+export interface StatAuditSummary {
+  performedCount: number;
+  overallVerdict: 'optimo' | 'parcial' | 'riesgo_critico' | 'omitido_en_inestabilidad' | 'no_requerido';
+  vitalEvolutionSummary: string;
+  narrative: string;
+  interventionReviews: StatInterventionAuditItem[];
 }
 
 export interface RubricCategoryDetail {
@@ -181,6 +226,17 @@ export interface EvaluationResult {
     diagnosis: string;
     rationale: string;
   }>;
+  rationalUseAudit?: {
+    rationalAntibioticStatus: 'optimo' | 'alerta' | 'no_aplica';
+    rationalAntibioticNote: string;
+    workupStewardshipNote: string;
+    redFlagsSafetyNote: string;
+    referralTriageVerdict: 'correcto' | 'subestimado' | 'sobreestimado';
+    referralTriageNote: string;
+  };
+  evaluationFrameworkLabel?: string;
+  recognizedEquivalents?: string[];
+  statAudit?: StatAuditSummary;
   userSummary?: {
     primaryDiagnosis: string;
     differentialDiagnoses: string[];
@@ -193,6 +249,8 @@ export interface EvaluationResult {
     questionCount: number;
     unlockedExamsNames: string[];
     unlockedStudiesNames: string[];
+    baselineVitalSigns?: VitalSigns;
+    finalVitalSigns?: VitalSigns;
   };
   resolvedAt: string;
 }

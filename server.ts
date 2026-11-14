@@ -611,7 +611,7 @@ El JSON debe tener EXACTAMENTE la siguiente estructura (SIN comentarios ni texto
         }
       ],
       "generalMeasures": ["Medida general 1", "Medida general 2"],
-      "hospitalizationDecision": "Ambulatorio" | "Observación Urgencias" | "Hospitalización en Sala" | "Unidad de Cuidados Intensivos (UCI)",
+      "hospitalizationDecision": "Ambulatorio" | "Observación Urgencias" | "Hospitalización en Sala" | "Quirófano / Cirugía de Urgencia" | "Unidad de Cuidados Intensivos (UCI)",
       "referralCriteria": ["Criterios de referencia"],
       "followUp": "Plan de seguimiento clínico"
     },
@@ -817,6 +817,7 @@ Debes evaluar exhaustivamente con criterio justo basado en **Normativa Nicaragü
 
 DATOS DEL CASO CLÍNICO:
 - Paciente: ${caseData.patientInfo?.name || 'Paciente'}, ${caseData.patientInfo?.age || 35} años, ${caseData.patientInfo?.sex || 'Masculino'}
+- Triage y Signos Vitales iniciales: ${caseData.patientInfo?.triageLevel || 'No especificado'} | PA: ${caseData.vitalSigns?.bloodPressure || 'N/D'} | FC: ${caseData.vitalSigns?.heartRate ?? 'N/D'} lpm | FR: ${caseData.vitalSigns?.respiratoryRate ?? 'N/D'} rpm | Temp: ${caseData.vitalSigns?.temperature ?? 'N/D'} °C | SpO₂: ${caseData.vitalSigns?.oxygenSaturation ?? 'N/D'}% | Glasgow: ${caseData.vitalSigns?.glasgow ?? 15}/15
 - Diagnóstico Verdadero del Caso: ${caseData.solution?.correctDiagnosis || 'Diagnóstico no especificado'}
 - Diagnósticos Diferenciales Principales: ${(caseData.solution?.differentialDiagnoses || []).join(', ')}
 - Claves de Descarte: ${(caseData.solution?.criticalRulingOutFactors || []).join(' | ')}
@@ -848,7 +849,9 @@ REGLAS DE EQUIVALENCIA NORMATIVA (NICARAGUA MINSA + INTERNACIONAL) Y RÚBRICA DE
 - APARTADOS VACÍOS Y ESCOPETAZO: Si un apartado está vacío o tiene 0 acciones reales, asigna 0 puntos en ese apartado. Si el usuario desbloqueó casi todo el examen físico o casi todos los estudios sin discriminación ("escopetazo diagnóstico"), penaliza 3 a 4 puntos.
 - ALERGIAS A PENICILINA / BETALACTÁMICOS (AAAAI/ACAAI 2022 y NICE): En alérgicos a penicilina, SÍ son error crítico las penicilinas y cefalosporinas de cadena lateral R1 compartida (cefalexina, cefadroxilo, cefaclor). Macrólidos, fluoroquinolonas, aztreonam y carbapenémicos (meropenem, imipenem, ertapenem) NO deben marcarse como error anafiláctico por alergia a penicilina.
 - CLÁUSULAS DE SUSPENSIÓN: "Suspender/Evitar [fármaco]" en medidas generales es correcto, jamás lo cuentes como prescripción.
-- USO RACIONAL Y CONDUCTA INTERMEDIA: Penaliza 1–2 pts antibióticos injustificados en cuadros virales/mecánicos o TAC/RMN innecesaria de entrada en cuadros ambulatorios simples. Otorga crédito parcial (2/3 en destino) si eligió Observación en Urgencias en lugar de Hospitalización o viceversa, y 0/3 solo si mandó a casa (Ambulatorio) un cuadro que requería Hospitalización/UCI.
+- SIGNOS VITALES NORMALES EN JUSTIFICACIÓN: Si los signos vitales del paciente están dentro de parámetros normales, NUNCA afirmes que esos signos vitales normales justifican o explican la enfermedad; úsalos solo para señalar estabilidad clínica/ausencia de alarma sistémica y enfoca el razonamiento en los síntomas, la exploración física y los estudios.
+- PROPORCIONALIDAD DE ERRORES CRÍTICOS ("criticalSafetyErrors"): Reserva "criticalSafetyErrors" exclusivamente para contraindicaciones graves con riesgo vital o daño mayor real (ej. anafilaxia por alergia documentada, AINE/AAS en Dengue o hemorragia activa grave, potasio en hiperkalemia severa, omisión de adrenalina en anafilaxia, o egreso ambulatorio en emergencia vital inestable). NO coloques ahí omisiones diagnósticas, falta de estudios ni errores leves en pacientes estables.
+- USO RACIONAL Y CONDUCTA ESTRICTA: Penaliza 1–2 pts antibióticos injustificados en cuadros virales/mecánicos o TAC/RMN innecesaria de entrada en cuadros ambulatorios simples. En conducta y destino (3 pts destino + 1 pt referencia + 1 pt seguimiento = 5 pts): sé estricto con el nivel asistencial. "Hospitalización en Sala" cuando el paciente exige "Unidad de Cuidados Intensivos (UCI)" o "Quirófano / Cirugía de Urgencia" NO es acierto completo (máximo 1/3 en destino, marcado como subestimación). "Observación Urgencias" cuando exige "Hospitalización" o viceversa recibe máximo 1/3; "Hospitalización/UCI/Quirófano" en un cuadro "Ambulatorio" recibe 0/3; y "Ambulatorio" en cuadro hospitalario/UCI/quirúrgico recibe 0/3 y error de seguridad. Solo otorga 3/3 al destino exacto (o "Quirófano / Cirugía de Urgencia" en patologías quirúrgicas agudas).
 1. anamnesis (0 a 15 pts)
 2. physicalExam (0 a 15 pts)
 3. studiesInterpretation (0 a 15 pts)

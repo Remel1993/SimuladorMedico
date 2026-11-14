@@ -312,11 +312,11 @@ export const TreatmentTab: React.FC<TreatmentTabProps> = ({
             <span>3. Conducta y Destino Clínico *</span>
           </label>
           <span className="text-[11px] text-blue-300/80 font-medium">
-            {hospitalizationDecision ? 'Puntaje: 5 pts' : 'Seleccione una opción · 5 pts'}
+            {hospitalizationDecision ? '3 pts de destino (5 pts total con ref./seguimiento)' : 'Seleccione una opción · 3 pts'}
           </span>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5 sm:gap-3">
           {[
             {
               id: 'Ambulatorio',
@@ -331,6 +331,10 @@ export const TreatmentTab: React.FC<TreatmentTabProps> = ({
               label: 'Hospitalización en Sala',
             },
             {
+              id: 'Quirófano / Cirugía de Urgencia',
+              label: 'Quirófano / Cirugía de Urgencia',
+            },
+            {
               id: 'Unidad de Cuidados Intensivos (UCI)',
               label: 'Unidad de Cuidados Intensivos (UCI)',
             },
@@ -339,7 +343,7 @@ export const TreatmentTab: React.FC<TreatmentTabProps> = ({
               key={opt.id}
               type="button"
               onClick={() => setHospitalizationDecision(opt.id)}
-              className={`p-3.5 rounded-xl border text-center sm:text-left transition-all cursor-pointer ${
+              className={`p-3.5 rounded-xl border text-center sm:text-left flex items-center justify-center sm:justify-start transition-all cursor-pointer ${
                 hospitalizationDecision === opt.id
                   ? 'bg-blue-600/25 border-blue-400 text-white shadow-sm ring-1 ring-blue-400/40'
                   : 'bg-[#040B1B] border-blue-900/70 text-blue-200 hover:border-blue-700'

@@ -97,7 +97,7 @@ export const DiagnosticStudiesTab: React.FC<DiagnosticStudiesTabProps> = ({
     Radiología: 'Radiografías',
     Ecografía: 'Ultrasonido',
     Tomografía: 'TAC / RMN',
-    Electrocardiograma: 'ECG / Holter',
+    Electrocardiograma: 'ECG / Holter / MAPA',
     'Electromiografía y Neurofisiología': 'EEG / EMG / Neurofisiología',
     'Función Pulmonar y Audiología': 'Espirometría / ORL',
     'Endoscopia y Broncoscopia': 'Endoscopia / Broncoscopia',

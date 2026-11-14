@@ -52,9 +52,9 @@ const MODES: Array<{ id: GameMode; title: string; short: string; desc: string; i
   },
   {
     id: 'urgencias',
-    title: 'Urgencias (ABCDE)',
+    title: 'Urgencias (Sala de Choque)',
     short: 'Urgencias',
-    desc: 'Ventana crítica de 8 min con guía interactiva ABCDE y pacientes con riesgo vital.',
+    desc: 'Ventana crítica de 8 min, estabilización STAT en vivo y emergencias con riesgo vital.',
     icon: Flame,
   },
   {

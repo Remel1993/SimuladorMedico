@@ -4,6 +4,7 @@ import { User, AlertTriangle, Pill, Clock } from 'lucide-react';
 
 interface PatientBannerProps {
   caseData: ClinicalCase;
+  revealSpecialty?: boolean;
 }
 
 const SPECIALTY_NAMES: Record<string, string> = {
@@ -33,7 +34,7 @@ const MODE_NAMES: Record<string, string> = {
   examen: 'Modo Examen',
 };
 
-export const PatientBanner: React.FC<PatientBannerProps> = ({ caseData }) => {
+export const PatientBanner: React.FC<PatientBannerProps> = ({ caseData, revealSpecialty = false }) => {
   const { patientInfo, background } = caseData;
   const hasAllergies =
     background.allergies &&
@@ -80,7 +81,9 @@ export const PatientBanner: React.FC<PatientBannerProps> = ({ caseData }) => {
                   ·
                 </span>
                 <span className="text-sky-300 font-semibold">
-                  {SPECIALTY_NAMES[caseData.specialty] || caseData.specialty} ({MODE_NAMES[caseData.mode] || caseData.mode})
+                  {revealSpecialty
+                    ? `${SPECIALTY_NAMES[caseData.specialty] || caseData.specialty} (${MODE_NAMES[caseData.mode] || caseData.mode})`
+                    : `Modo ${MODE_NAMES[caseData.mode] || caseData.mode}`}
                 </span>
               </div>
             </div>

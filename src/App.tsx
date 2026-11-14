@@ -123,6 +123,8 @@ export default function App() {
   const [abcdeChecked, setAbcdeChecked] = useState<string[]>([]);
   const examAutoSubmittedRef = useRef(false);
   const latestFinishRef = useRef<() => void>(() => {});
+  const chatAbortRef = useRef<AbortController | null>(null);
+  const activeChatCaseIdRef = useRef<string>(ALL_CURATED_CASES[0].id);
 
   // Initialize Load LocalStorage History & Seen-Cases Anti-Repetition Deck
   useEffect(() => {
@@ -184,7 +186,11 @@ export default function App() {
 
   // Set up case initial dialogue and enter simulation view
   const setupCase = (newCase: ClinicalCase) => {
+    chatAbortRef.current?.abort();
+    chatAbortRef.current = null;
     const enriched = enrichCaseWithUniversalPhysicalExam(enrichCaseWithHospitalCatalog(newCase));
+    activeChatCaseIdRef.current = enriched.id;
+    setIsChatLoading(false);
     setCurrentCase(enriched);
     setRecentCaseIds((prev) => {
       const withoutCurrent = prev.filter((id) => id !== enriched.id);
@@ -273,6 +279,9 @@ export default function App() {
 
   // Chat Handler
   const handleSendMessage = async (text: string) => {
+    const requestCaseId = currentCase.id;
+    activeChatCaseIdRef.current = requestCaseId;
+
     const newDocMsg: ChatMessage = {
       id: `msg-doc-${Date.now()}`,
       sender: 'doctor',
@@ -284,10 +293,16 @@ export default function App() {
     setMessages(updatedMessages);
     setIsChatLoading(true);
 
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 14000);
+    chatAbortRef.current?.abort();
+    const controller = new AbortController();
+    chatAbortRef.current = controller;
+    let timedOut = false;
+    const timeoutId = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, 15000);
 
+    try {
       const response = await fetch('/api/patient-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -317,7 +332,13 @@ export default function App() {
       });
       clearTimeout(timeoutId);
 
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
       const data = await response.json();
+      if (activeChatCaseIdRef.current !== requestCaseId) return;
+
       const patientReply =
         data.reply ||
         'Disculpe doctor, me siento bastante mal y débil. ¿Me podría repetir eso con otras palabras?';
@@ -331,7 +352,11 @@ export default function App() {
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         },
       ]);
-    } catch {
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+      if (activeChatCaseIdRef.current !== requestCaseId) return;
+      if (err?.name === 'AbortError' && !timedOut) return;
+
       setMessages((prev) => [
         ...prev,
         {
@@ -342,7 +367,10 @@ export default function App() {
         },
       ]);
     } finally {
-      setIsChatLoading(false);
+      clearTimeout(timeoutId);
+      if (activeChatCaseIdRef.current === requestCaseId) {
+        setIsChatLoading(false);
+      }
     }
   };
 

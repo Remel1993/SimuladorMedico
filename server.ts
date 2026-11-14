@@ -356,12 +356,20 @@ async function callGeminiWithFallback(options: {
 
   const deadline = Date.now() + options.timeoutMs;
 
-  for (const model of GEMINI_FREE_MODELS) {
+  for (let i = 0; i < GEMINI_FREE_MODELS.length; i++) {
+    const model = GEMINI_FREE_MODELS[i];
     const now = Date.now();
     if (now < (modelCooldownUntil[model] || 0)) continue;
 
     const remainingMs = deadline - now;
     if (remainingMs < 1500) break;
+
+    const hasNextAvailable = GEMINI_FREE_MODELS.slice(i + 1).some(
+      (nextModel) => now >= (modelCooldownUntil[nextModel] || 0)
+    );
+    const attemptTimeoutMs = hasNextAvailable
+      ? Math.min(remainingMs, Math.max(4500, Math.floor(remainingMs * 0.65)))
+      : remainingMs;
 
     const config: Record<string, any> = {};
     if (options.systemInstruction) config.systemInstruction = options.systemInstruction;
@@ -382,7 +390,7 @@ async function callGeminiWithFallback(options: {
       });
 
     const timerPromise = new Promise<null>((resolve) =>
-      setTimeout(() => resolve(null), remainingMs)
+      setTimeout(() => resolve(null), attemptTimeoutMs)
     );
 
     const response: any = await Promise.race([aiCall, timerPromise]);
@@ -706,9 +714,19 @@ app.post('/api/patient-chat', async (req: Request, res: Response) => {
 
     if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'MY_GEMINI_API_KEY') {
       try {
-        const systemInstruction = buildPatientSystemInstruction(payload);
-        const conversationPrompt = `Historial completo de la consulta médica hasta este momento:
-${history
+        const priorHistory =
+          history.length > 0 &&
+          history[history.length - 1]?.sender === 'doctor' &&
+          history[history.length - 1]?.text?.trim() === userMessage.trim()
+            ? history.slice(0, -1)
+            : history;
+
+        const systemInstruction = buildPatientSystemInstruction({
+          ...payload,
+          history: priorHistory,
+        });
+        const conversationPrompt = `Historial de la consulta médica hasta este momento:
+${priorHistory
   .slice(-16)
   .map((m) =>
     m.sender === 'doctor'
@@ -720,18 +738,19 @@ ${history
   .join('\n')}
 
 Pregunta actual del Médico: ${userMessage}
-Paciente (OBLIGATORIO responder en PRIMERA PERSONA del singular — "yo siento", "me empezó", "tuve", "tengo" — JAMÁS en tercera persona ni narrando como expediente clínico; si es un bebé/niño pequeño, responde como su madre/padre en primera persona):`;
+Paciente (responde solo con el diálogo natural en primera persona del singular, sin prefijo "Paciente:"):`;
 
         const rawReply = await callGeminiWithFallback({
           contents: conversationPrompt,
           systemInstruction,
-          thinkingLevel: ThinkingLevel.LOW,
-          timeoutMs: 10000,
+          thinkingLevel: ThinkingLevel.MINIMAL,
+          timeoutMs: 9500,
         });
 
         if (rawReply) {
-          const reply = ensureFirstPersonReply(rawReply, payload.patientInfo);
-          const prevPatientNormalized = history
+          const cleanedAiReply = rawReply.replace(/^Paciente\s*:\s*/i, '').trim();
+          const reply = ensureFirstPersonReply(cleanedAiReply, payload.patientInfo);
+          const prevPatientNormalized = priorHistory
             .filter((m) => m.sender === 'patient')
             .map((m) =>
               m.text
@@ -742,7 +761,7 @@ Paciente (OBLIGATORIO responder en PRIMERA PERSONA del singular — "yo siento",
                 .replace(/\s+/g, ' ')
                 .trim()
             );
-          if (!isSimilarToPrevious(reply, prevPatientNormalized)) {
+          if (reply && !isSimilarToPrevious(reply, prevPatientNormalized)) {
             return res.json({ reply });
           }
         }

@@ -46,6 +46,8 @@ export interface PhysicalExamFinding {
   finding: string;
   isAbnormal: boolean;
   semiologyNote?: string;
+  liveStatus?: 'estable' | 'evolucion' | 'mejoria' | 'iatrogenia' | 'critico';
+  liveUpdateNote?: string;
 }
 
 export interface ComplementaryStudy {
@@ -58,6 +60,8 @@ export interface ComplementaryStudy {
   interpretation?: string;
   isAbnormal: boolean;
   visualReportUrl?: string;
+  liveStatus?: 'estable' | 'evolucion' | 'mejoria' | 'iatrogenia' | 'critico';
+  liveUpdateNote?: string;
 }
 
 export interface MedicationItem {
@@ -93,6 +97,15 @@ export interface ClinicalSolution {
   guidelineReferences: string[];
 }
 
+export interface ClinicalCaseMetadata {
+  lastReviewed: string;
+  reviewedBy: string;
+  evidenceSources: string[];
+  frequentErrors: string[];
+  educationalDisclaimer: string;
+  isCustom?: boolean;
+}
+
 export interface ClinicalCase {
   id: string;
   mode: GameMode;
@@ -113,6 +126,7 @@ export interface ClinicalCase {
   studiesPool: ComplementaryStudy[];
   solution: ClinicalSolution;
   internalPersonaPrompt?: string;
+  clinicalMetadata?: ClinicalCaseMetadata;
 }
 
 export interface ChatMessage {
@@ -145,6 +159,17 @@ export interface StatInterventionRecord {
   physiologicalEffectSummary: string;
   deltas: StatVitalDelta[];
   patientFeelingNote: string;
+  isImmediateDeath?: boolean;
+  immediateDeathReason?: string;
+}
+
+export type EvolutionTrajectory = 'estable' | 'mejorando' | 'deterioro' | 'critico';
+
+export interface ClinicalEvolutionState {
+  trajectory: EvolutionTrajectory;
+  activeAlerts: string[];
+  lastEvaluatedSecond: number;
+  summaryNote: string;
 }
 
 export interface UserEvaluationInput {
@@ -182,6 +207,7 @@ export interface StatAuditSummary {
   vitalEvolutionSummary: string;
   narrative: string;
   interventionReviews: StatInterventionAuditItem[];
+  immediateDeathReason?: string;
 }
 
 export interface RubricCategoryDetail {
@@ -272,3 +298,42 @@ export interface SavedCaseRecord {
   date: string;
   evaluation: EvaluationResult;
 }
+
+export interface UserPreferences {
+  preferredMode: GameMode;
+  preferredSpecialty: Specialty;
+  ttsEnabled: boolean;
+  updatedAt: string;
+}
+
+export interface PerformanceStats {
+  totalCompleted: number;
+  averageScore: number;
+  bestScore: number;
+  excellentCount: number;
+  totalSafetyErrors: number;
+  lastActivityAt: string | null;
+}
+
+export interface ActiveSimulationSession {
+  id: 'current';
+  caseData: ClinicalCase;
+  activeTab: 'anamnesis' | 'background' | 'physical_exam' | 'studies' | 'diagnosis' | 'treatment' | 'audit';
+  liveVitalSigns: VitalSigns;
+  statInterventions: StatInterventionRecord[];
+  messages: ChatMessage[];
+  unlockedExamIds: string[];
+  unlockedStudyIds: string[];
+  primaryDiagnosis: string;
+  differentialDiagnoses: string[];
+  clinicalJustification: string;
+  additionalStudiesNeeded: string;
+  medications: MedicationItem[];
+  generalMeasures: string;
+  hospitalizationDecision: string;
+  referralCriteria: string;
+  followUpPlan: string;
+  elapsedSeconds: number;
+  updatedAt: string;
+}
+

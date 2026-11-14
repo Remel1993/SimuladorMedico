@@ -1181,7 +1181,7 @@ export const PRESET_CASES: ClinicalCase[] = [
       triageLevel: 'Nivel II (Emergencia)',
     },
     vitalSigns: {
-      bloodPressure: '105/65 mmHg (BUN: 24 mg/dL)',
+      bloodPressure: '105/65 mmHg',
       heartRate: 106,
       respiratoryRate: 28,
       temperature: 38.9,

@@ -11,6 +11,7 @@ import {
   ClipboardCheck,
   MessageCircleQuestion,
   HeartPulse,
+  Zap,
 } from 'lucide-react';
 import { ChatMessage, ClinicalCase } from '../types/clinical';
 
@@ -42,19 +43,56 @@ export const AnamnesisTab: React.FC<AnamnesisTabProps> = ({
 }) => {
   const [inputText, setInputText] = useState('');
   const [ttsEnabled, setTtsEnabled] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const lastSpokenIdRef = useRef<string | null>(null);
 
   const isPediatric = caseData.patientInfo.age < 12;
 
   const renderPatientAvatarIcon = (className: string) =>
     isPediatric ? <Baby className={className} /> : <UserRound className={className} />;
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  const speakText = (text: string) => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'es-ES';
+      utterance.rate = 1.0;
+      window.speechSynthesis.speak(utterance);
+    }
   };
 
   useEffect(() => {
-    scrollToBottom();
+    setInputText('');
+    lastSpokenIdRef.current = messages[0]?.id ?? null;
+    return () => {
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, [caseData.id]);
+
+  useEffect(() => {
+    if (!ttsEnabled) {
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+      return;
+    }
+    const lastPatientMsg = [...messages].reverse().find((m) => m.sender === 'patient');
+    if (lastPatientMsg && lastPatientMsg.id !== lastSpokenIdRef.current) {
+      lastSpokenIdRef.current = lastPatientMsg.id;
+      speakText(lastPatientMsg.text);
+    }
+  }, [messages, ttsEnabled]);
+
+  useEffect(() => {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    if (messages.length <= 1 && !isLoading) {
+      el.scrollTop = 0;
+      return;
+    }
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
   }, [messages, isLoading]);
 
   const handleSend = async (e?: React.FormEvent) => {
@@ -68,16 +106,6 @@ export const AnamnesisTab: React.FC<AnamnesisTabProps> = ({
   const handleQuickQuestion = async (q: string) => {
     if (isLoading) return;
     await onSendMessage(q);
-  };
-
-  const speakText = (text: string) => {
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = 'es-ES';
-      utterance.rate = 1.0;
-      window.speechSynthesis.speak(utterance);
-    }
   };
 
   return (
@@ -99,7 +127,8 @@ export const AnamnesisTab: React.FC<AnamnesisTabProps> = ({
         </div>
 
         <button
-          onClick={() => setTtsEnabled(!ttsEnabled)}
+          type="button"
+          onClick={() => setTtsEnabled((prev) => !prev)}
           className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border transition-colors shrink-0 cursor-pointer ${
             ttsEnabled
               ? 'bg-blue-600/30 border-blue-500 text-white'
@@ -114,7 +143,10 @@ export const AnamnesisTab: React.FC<AnamnesisTabProps> = ({
       </div>
 
       {/* Messages Scroll Area */}
-      <div className="flex-1 overflow-y-auto p-3 sm:p-5 space-y-3.5 sm:space-y-4">
+      <div
+        ref={messagesContainerRef}
+        className="flex-1 overflow-y-auto p-3 sm:p-5 space-y-3.5 sm:space-y-4"
+      >
         {/* Initial Medical Reception System Notice */}
         <div className="bg-[#040B1B] border border-blue-900/60 rounded-xl p-3.5 text-xs text-blue-200/85 max-w-2xl mx-auto text-center space-y-1.5">
           <div className="flex items-center justify-center gap-2 font-semibold text-white">
@@ -130,6 +162,21 @@ export const AnamnesisTab: React.FC<AnamnesisTabProps> = ({
         </div>
 
         {messages.map((msg) => {
+          if (msg.sender === 'system') {
+            return (
+              <div
+                key={msg.id}
+                className="mx-auto max-w-xl bg-[#040B1B] border border-amber-600/50 rounded-lg px-3.5 py-2 text-[11px] text-amber-100 flex items-start gap-2"
+              >
+                <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+                <div className="min-w-0 flex-1">
+                  <span className="font-semibold text-amber-300">Aplicación STAT ({msg.timestamp}): </span>
+                  <span className="text-blue-100">{msg.text}</span>
+                </div>
+              </div>
+            );
+          }
+
           const isDoctor = msg.sender === 'doctor';
           return (
             <div
@@ -216,7 +263,6 @@ export const AnamnesisTab: React.FC<AnamnesisTabProps> = ({
           </div>
         )}
 
-        <div ref={messagesEndRef} />
       </div>
 
       {/* Suggested Quick Questions Carousel (Hidden in Modo Examen for genuine blind assessment) */}

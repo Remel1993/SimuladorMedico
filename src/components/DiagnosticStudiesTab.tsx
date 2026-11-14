@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ClinicalCase, ComplementaryStudy } from '../types/clinical';
 import { HOSPITAL_SUBCATEGORY_ORDER } from '../utils/studiesCatalog';
+import { StudyTracingViewer } from './StudyTracingViewer';
 import {
   FlaskConical,
   ImageIcon,
@@ -19,6 +20,9 @@ import {
   TestTube2,
   LayoutGrid,
   ListChecks,
+  Zap,
+  Sparkles,
+  Eye,
 } from 'lucide-react';
 
 interface DiagnosticStudiesTabProps {
@@ -52,6 +56,14 @@ function getStudyIcon(study: ComplementaryStudy, className = 'w-4 h-4 shrink-0')
     case 'Electrolitos':
     case 'Función Hepática':
       return <TestTube2 className={className} />;
+    case 'Vitaminas y Nutrición':
+      return <Sparkles className={className} />;
+    case 'Electromiografía y Neurofisiología':
+      return <Zap className={className} />;
+    case 'Función Pulmonar y Audiología':
+      return <Wind className={className} />;
+    case 'Endoscopia y Broncoscopia':
+      return <Eye className={className} />;
     default:
       if (study.category === 'Imagen') return <ImageIcon className={className} />;
       if (study.category === 'Gabinete y Trazados') return <Activity className={className} />;
@@ -78,13 +90,17 @@ export const DiagnosticStudiesTab: React.FC<DiagnosticStudiesTabProps> = ({
     Electrolitos: 'Electrolitos',
     'Función Hepática': 'Perfil Hepático',
     'Inflamación e Infección': 'PCR / VSG',
+    'Vitaminas y Nutrición': 'Vitaminas',
     Cardiovascular: 'Cardíacos',
     Urinario: 'Orina / EGO',
     'Microbiología / Serología': 'Microbiología',
     Radiología: 'Radiografías',
     Ecografía: 'Ultrasonido',
     Tomografía: 'TAC / RMN',
-    Electrocardiograma: 'ECG',
+    Electrocardiograma: 'ECG / Holter',
+    'Electromiografía y Neurofisiología': 'EEG / EMG / Neurofisiología',
+    'Función Pulmonar y Audiología': 'Espirometría / ORL',
+    'Endoscopia y Broncoscopia': 'Endoscopia / Broncoscopia',
   };
 
   const categoryScopedStudies = caseData.studiesPool.filter(
@@ -312,9 +328,11 @@ export const DiagnosticStudiesTab: React.FC<DiagnosticStudiesTabProps> = ({
                     </div>
                   </div>
 
-                  {/* Unlocked Study Content Report */}
+                  {/* Unlocked Study Content Report + Visual Tracing */}
                   {isUnlocked && (
                     <div className="mt-4 pt-4 border-t border-blue-900/60 space-y-3">
+                      <StudyTracingViewer study={study} vitalSigns={caseData.vitalSigns} />
+
                       <div className="bg-black/60 p-3.5 sm:p-4 rounded-xl border border-blue-900/70 font-mono text-xs text-white">
                         <div className="text-[10px] text-blue-300 font-sans uppercase font-semibold mb-1">
                           Informe Oficial del Laboratorio / Gabinete:

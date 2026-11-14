@@ -1,5 +1,5 @@
 import React from 'react';
-import { PlusCircle, History, BookOpen, Stethoscope, RefreshCw, Home } from 'lucide-react';
+import { PlusCircle, History, BookOpen, Stethoscope, RefreshCw, Home, Calculator } from 'lucide-react';
 import { GameMode, Specialty } from '../types/clinical';
 
 interface NavbarProps {
@@ -8,6 +8,7 @@ interface NavbarProps {
   onOpenNewCaseModal: () => void;
   onOpenHistoryModal: () => void;
   onOpenGuideModal: () => void;
+  onOpenCalculatorsModal: () => void;
   onRestartCase: () => void;
   currentMode: GameMode;
   currentSpecialty: Specialty;
@@ -20,6 +21,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenNewCaseModal,
   onOpenHistoryModal,
   onOpenGuideModal,
+  onOpenCalculatorsModal,
   onRestartCase,
   currentMode,
   historyCount,
@@ -104,6 +106,15 @@ export const Navbar: React.FC<NavbarProps> = ({
             <span>Guías (OMS / AHA)</span>
           </button>
 
+          <button
+            onClick={onOpenCalculatorsModal}
+            className="hover:text-white transition-colors whitespace-nowrap shrink-0 flex items-center gap-1.5 cursor-pointer"
+            title="Calculadoras médicas neutrales (TFG, PAM, dosis pediátrica, Centor, CURB-65, Ottawa)"
+          >
+            <Calculator className="w-3.5 h-3.5 text-sky-400" />
+            <span>Calculadoras</span>
+          </button>
+
           {activeView === 'simulation' && (
             <button
               onClick={onRestartCase}
@@ -165,6 +176,14 @@ export const Navbar: React.FC<NavbarProps> = ({
         >
           <BookOpen className="w-3 h-3 text-blue-400" />
           <span>Guías OMS/AHA</span>
+        </button>
+
+        <button
+          onClick={onOpenCalculatorsModal}
+          className="px-2.5 py-1.5 rounded-lg bg-[#0A1A3A] border border-blue-800/70 text-[11px] font-medium text-blue-100 whitespace-nowrap shrink-0 flex items-center gap-1 cursor-pointer"
+        >
+          <Calculator className="w-3 h-3 text-sky-400" />
+          <span>Calculadoras</span>
         </button>
 
         {activeView === 'simulation' && (

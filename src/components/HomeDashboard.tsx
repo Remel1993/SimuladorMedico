@@ -152,7 +152,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
             >
               <span className="flex items-center gap-1.5 min-w-0">
                 <BookOpen className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-                <span className="truncate">Guías OMS / AHA</span>
+                <span className="truncate">Guías MINSA / OMS</span>
               </span>
               <ChevronRight className="w-3.5 h-3.5 text-blue-400 shrink-0" />
             </button>
@@ -289,7 +289,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
             <span>3. Diagnóstico y Rúbrica (100 Pts)</span>
           </div>
           <p className="text-xs text-blue-100/80 leading-relaxed">
-            Sustenta diagnósticos diferenciales, prescribe esquema farmacológico con dosis y recibe retroalimentación académica basada en guías OMS, OPS, AHA y NICE.
+            Sustenta diagnósticos diferenciales, prescribe esquema farmacológico con dosis y recibe retroalimentación académica basada en normativa MINSA y guías OMS, OPS, AHA y NICE.
           </p>
         </div>
       </section>

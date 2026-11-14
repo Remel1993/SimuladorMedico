@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { SavedCaseRecord, Specialty } from '../types/clinical';
 import {
   X,
@@ -71,6 +71,13 @@ export const CaseHistoryModal: React.FC<CaseHistoryModalProps> = ({
   onReviewCase,
 }) => {
   const [activeView, setActiveView] = useState<'list' | 'analytics'>('list');
+  const modalBodyRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (isOpen && modalBodyRef.current) {
+      modalBodyRef.current.scrollTop = 0;
+    }
+  }, [isOpen, activeView]);
 
   if (!isOpen) return null;
 
@@ -209,7 +216,10 @@ export const CaseHistoryModal: React.FC<CaseHistoryModalProps> = ({
         )}
 
         {/* Generous Scrollable Body (Stats + Content together) */}
-        <div className="p-3.5 sm:p-6 flex-1 min-h-0 overflow-y-auto space-y-4">
+        <div
+          ref={modalBodyRef}
+          className="p-3.5 sm:p-6 flex-1 min-h-0 overflow-y-auto space-y-4"
+        >
           {/* Compact 3-Column Stats Strip */}
           <div className="grid grid-cols-3 gap-2 sm:gap-3">
             <div className="bg-[#040B1B] p-2.5 sm:p-3.5 rounded-xl border border-blue-900/60 flex items-center gap-2 sm:gap-3 min-w-0">

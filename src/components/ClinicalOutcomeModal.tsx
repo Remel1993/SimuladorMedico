@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef, useEffect } from 'react';
 import { DramaticOutcome } from '../utils/caseEvaluation';
 import {
   HeartHandshake,
@@ -23,6 +23,14 @@ export const ClinicalOutcomeModal: React.FC<ClinicalOutcomeModalProps> = ({
   patientName,
   onContinueToAudit,
 }) => {
+  const overlayRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (outcome && overlayRef.current) {
+      overlayRef.current.scrollTop = 0;
+    }
+  }, [outcome]);
+
   if (!outcome) return null;
 
   const themeMap = {
@@ -86,7 +94,10 @@ export const ClinicalOutcomeModal: React.FC<ClinicalOutcomeModalProps> = ({
   const t = themeMap[outcome.status];
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
+    <div
+      ref={overlayRef}
+      className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 overflow-y-auto"
+    >
       <div
         className={`w-full max-w-2xl rounded-2xl border-2 ${t.border} ${t.bg} shadow-2xl overflow-hidden my-auto`}
       >

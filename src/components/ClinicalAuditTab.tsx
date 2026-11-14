@@ -16,6 +16,10 @@ import {
   ChevronDown,
   ChevronUp,
   Target,
+  ShieldCheck,
+  Hospital,
+  Zap,
+  Activity,
 } from 'lucide-react';
 
 interface ClinicalAuditTabProps {
@@ -37,6 +41,8 @@ export const ClinicalAuditTab: React.FC<ClinicalAuditTabProps> = ({
     criticalSafetyErrors,
     feedback,
     differentialExplanations,
+    rationalUseAudit,
+    statAudit,
     userSummary,
   } = evaluation;
   const { solution } = caseData;
@@ -168,6 +174,9 @@ export const ClinicalAuditTab: React.FC<ClinicalAuditTabProps> = ({
                   <span className="font-semibold text-white">{userSummary.primaryDiagnosis}</span>
                 </p>
               )}
+              <p className="text-[11px] text-emerald-300/90 mt-1.5 font-medium max-w-2xl">
+                Marco evaluador: {evaluation.evaluationFrameworkLabel || 'Normativa Nicaragüense (MINSA / Lista Básica) + Estándar Internacional (OMS / OPS / AHA / IDSA)'}
+              </p>
             </div>
           </div>
 
@@ -182,6 +191,21 @@ export const ClinicalAuditTab: React.FC<ClinicalAuditTabProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Validated MINSA Nicaragua / International Equivalents Banner */}
+      {evaluation.recognizedEquivalents && evaluation.recognizedEquivalents.length > 0 && (
+        <div className="bg-emerald-950/35 border border-emerald-600/50 rounded-2xl p-4 sm:p-5 text-emerald-100 shadow-md space-y-2">
+          <div className="flex items-center gap-2 text-emerald-300 font-bold text-xs uppercase tracking-wider">
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+            <span>Equivalencias Clínicas y Normativas Validadas (MINSA Nicaragua + Internacional)</span>
+          </div>
+          <ul className="space-y-1 text-xs text-emerald-100/95 pl-5 list-disc">
+            {evaluation.recognizedEquivalents.map((eq, idx) => (
+              <li key={idx}>{eq}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Critical Safety Errors Banner */}
       {criticalSafetyErrors && criticalSafetyErrors.length > 0 && (
@@ -198,6 +222,173 @@ export const ClinicalAuditTab: React.FC<ClinicalAuditTabProps> = ({
           <p className="text-[11px] text-rose-200 italic pt-1">
             * Nota docente: En la práctica clínica real, este tipo de error conlleva alto riesgo de morbimortalidad iatrogénica.
           </p>
+        </div>
+      )}
+
+      {/* Primary Care & Stewardship Decision Summary (Tratar en casa vs Referir, Uso Racional, Banderas Rojas) */}
+      {rationalUseAudit && (
+        <div className="bg-[#07132B] border border-blue-900/60 rounded-2xl p-4 sm:p-5 shadow-md space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-blue-900/60 pb-2.5">
+            <h3 className="text-xs sm:text-sm font-bold uppercase tracking-wider text-sky-300 flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-sky-400 shrink-0" />
+              <span>Auditoría de Primer Nivel: Destino, Uso Racional y Banderas Rojas</span>
+            </h3>
+            <span
+              className={`text-[10px] font-bold uppercase px-2.5 py-0.5 rounded border ${
+                rationalUseAudit.referralTriageVerdict === 'correcto'
+                  ? 'bg-emerald-950/70 border-emerald-700/60 text-emerald-300'
+                  : rationalUseAudit.referralTriageVerdict === 'subestimado'
+                    ? 'bg-rose-950/70 border-rose-700/60 text-rose-300'
+                    : 'bg-amber-950/70 border-amber-700/60 text-amber-300'
+              }`}
+            >
+              {rationalUseAudit.referralTriageVerdict === 'correcto'
+                ? 'Destino Clínico Oportuno'
+                : rationalUseAudit.referralTriageVerdict === 'subestimado'
+                  ? 'Referencia Tardía / Subestimada'
+                  : 'Sobre-referencia'}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+            <div className="bg-[#040B1B] border border-blue-900/70 rounded-xl p-3 space-y-1">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-blue-300 flex items-center gap-1.5">
+                <Hospital className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                <span>Casa vs. Referir a Tiempo</span>
+              </div>
+              <p className="text-[11px] text-blue-100 leading-relaxed">
+                {rationalUseAudit.referralTriageNote}
+              </p>
+            </div>
+
+            <div className="bg-[#040B1B] border border-blue-900/70 rounded-xl p-3 space-y-1">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-blue-300 flex items-center gap-1.5">
+                <Pill className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                <span>Uso Racional de Antibióticos</span>
+              </div>
+              <p
+                className={`text-[11px] leading-relaxed ${
+                  rationalUseAudit.rationalAntibioticStatus === 'alerta'
+                    ? 'text-amber-200'
+                    : rationalUseAudit.rationalAntibioticStatus === 'optimo'
+                      ? 'text-emerald-200'
+                      : 'text-blue-100'
+                }`}
+              >
+                {rationalUseAudit.rationalAntibioticNote}
+              </p>
+            </div>
+
+            <div className="bg-[#040B1B] border border-blue-900/70 rounded-xl p-3 space-y-1">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-blue-300 flex items-center gap-1.5">
+                <FlaskConical className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                <span>Pertinencia de Estudios</span>
+              </div>
+              <p className="text-[11px] text-blue-100 leading-relaxed">
+                {rationalUseAudit.workupStewardshipNote}
+              </p>
+            </div>
+
+            <div className="bg-[#040B1B] border border-blue-900/70 rounded-xl p-3 space-y-1">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-blue-300 flex items-center gap-1.5">
+                <ShieldAlert className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                <span>Banderas Rojas y Alta</span>
+              </div>
+              <p className="text-[11px] text-blue-100 leading-relaxed">
+                {rationalUseAudit.redFlagsSafetyNote}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* STAT Stabilization & Patient Physiological Evolution Audit */}
+      {statAudit && (statAudit.performedCount > 0 || statAudit.overallVerdict === 'omitido_en_inestabilidad') && (
+        <div
+          className={`rounded-2xl border p-4 sm:p-5 shadow-md space-y-3 ${
+            statAudit.overallVerdict === 'riesgo_critico' || statAudit.overallVerdict === 'omitido_en_inestabilidad'
+              ? 'bg-rose-950/35 border-rose-600/60'
+              : statAudit.overallVerdict === 'optimo'
+                ? 'bg-emerald-950/30 border-emerald-600/60'
+                : 'bg-[#07132B] border-blue-900/60'
+          }`}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-blue-900/60 pb-2.5">
+            <h3 className="text-xs sm:text-sm font-bold uppercase tracking-wider text-amber-300 flex items-center gap-2">
+              <Zap className="w-4 h-4 text-amber-400 shrink-0" />
+              <span>Auditoría de Estabilización STAT y Respuesta del Paciente</span>
+            </h3>
+            <span
+              className={`text-[10px] font-bold uppercase px-2.5 py-0.5 rounded border ${
+                statAudit.overallVerdict === 'optimo'
+                  ? 'bg-emerald-950/70 border-emerald-700/60 text-emerald-300'
+                  : statAudit.overallVerdict === 'riesgo_critico' || statAudit.overallVerdict === 'omitido_en_inestabilidad'
+                    ? 'bg-rose-950/70 border-rose-700/60 text-rose-300'
+                    : 'bg-amber-950/70 border-amber-700/60 text-amber-300'
+              }`}
+            >
+              {statAudit.overallVerdict === 'optimo'
+                ? 'Estabilización Oportuna'
+                : statAudit.overallVerdict === 'riesgo_critico'
+                  ? 'Dosis Riesgosa / Evento Adverso'
+                  : statAudit.overallVerdict === 'omitido_en_inestabilidad'
+                    ? 'Estabilización Aguda Omitida'
+                    : 'Efecto Parcial'}
+            </span>
+          </div>
+
+          <div className="bg-[#040B1B] border border-blue-900/70 rounded-xl p-3 text-xs space-y-1.5">
+            <div className="flex items-center gap-2 text-sky-300 font-semibold">
+              <Activity className="w-3.5 h-3.5 shrink-0" />
+              <span>Evolución de Signos Vitales:</span>
+            </div>
+            <p className="font-mono tabular-nums text-[11px] text-white break-words">
+              {statAudit.vitalEvolutionSummary}
+            </p>
+            <p className="text-blue-100 leading-relaxed pt-1">{statAudit.narrative}</p>
+          </div>
+
+          {statAudit.interventionReviews.length > 0 && (
+            <div className="space-y-2">
+              {statAudit.interventionReviews.map((rev, idx) => (
+                <div
+                  key={idx}
+                  className={`rounded-xl border p-3 text-xs space-y-1 ${
+                    rev.verdict === 'riesgo_o_excesivo'
+                      ? 'bg-rose-950/40 border-rose-600/70 text-rose-100'
+                      : rev.verdict === 'adecuado'
+                        ? 'bg-[#040B1B] border-emerald-700/60 text-blue-100'
+                        : 'bg-[#040B1B] border-blue-900/70 text-blue-100'
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-bold text-white">
+                      {rev.drug} · {rev.dose} ({rev.route})
+                    </span>
+                    <span
+                      className={`text-[10px] font-bold uppercase ${
+                        rev.verdict === 'riesgo_o_excesivo'
+                          ? 'text-rose-300'
+                          : rev.verdict === 'adecuado'
+                            ? 'text-emerald-300'
+                            : 'text-amber-300'
+                      }`}
+                    >
+                      {rev.verdict === 'riesgo_o_excesivo'
+                        ? 'Riesgo / Sobredosis'
+                        : rev.verdict === 'adecuado'
+                          ? 'Adecuado'
+                          : 'Sin impacto agudo'}
+                    </span>
+                  </div>
+                  <p className="text-[11px] leading-relaxed">{rev.comment}</p>
+                  <div className="text-[10px] font-mono tabular-nums text-sky-300">
+                    {rev.deltaSummary}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -314,7 +505,7 @@ export const ClinicalAuditTab: React.FC<ClinicalAuditTabProps> = ({
               Sesión Clínico-Patológica Didáctica: Diagnósticos, Estudios y Tratamiento
             </h3>
           </div>
-          <span className="text-xs text-blue-300 font-medium">Basado en Guías OMS / OPS / AHA / NICE</span>
+          <span className="text-xs text-blue-300 font-medium">Normativa MINSA Nicaragua · Guías OMS / OPS / AHA / NICE</span>
         </div>
 
         {/* 1. Diagnóstico Comparativo y Fisiopatología */}

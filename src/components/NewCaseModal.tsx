@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { GameMode, Specialty } from '../types/clinical';
 import { ALL_CURATED_CASES } from '../data/allCases';
 import { X, Sparkles, Stethoscope, Shield, Flame, GraduationCap, Check, ChevronRight } from 'lucide-react';
@@ -78,8 +78,28 @@ export const NewCaseModal: React.FC<NewCaseModalProps> = ({
   const [selectedMode, setSelectedMode] = useState<GameMode>('medico_general');
   const [selectedSpecialty, setSelectedSpecialty] = useState<Specialty>('aleatorio');
   const [activeTab, setActiveTab] = useState<'custom' | 'presets'>('custom');
+  const [presetFilter, setPresetFilter] = useState<'all' | 'outpatient' | 'principiante' | 'medico_general' | 'complex'>('all');
+  const modalBodyRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (isOpen && modalBodyRef.current) {
+      modalBodyRef.current.scrollTop = 0;
+    }
+  }, [isOpen, activeTab, presetFilter]);
 
   if (!isOpen) return null;
+
+  const filteredPresets = ALL_CURATED.filter((c) => {
+    if (presetFilter === 'outpatient') {
+      return c.solution.optimalTreatment.hospitalizationDecision === 'Ambulatorio';
+    }
+    if (presetFilter === 'principiante') return c.mode === 'principiante';
+    if (presetFilter === 'medico_general') return c.mode === 'medico_general';
+    if (presetFilter === 'complex') {
+      return c.mode === 'residente' || c.mode === 'urgencias' || c.mode === 'examen';
+    }
+    return true;
+  });
 
   const selectedModeObj = MODES.find((m) => m.id === selectedMode);
   const selectedSpecObj = SPECIALTIES.find((s) => s.id === selectedSpecialty);
@@ -154,7 +174,10 @@ export const NewCaseModal: React.FC<NewCaseModalProps> = ({
         </div>
 
         {/* Modal Body */}
-        <div className="p-4 sm:p-6 flex-1 overflow-y-auto space-y-5 sm:space-y-6">
+        <div
+          ref={modalBodyRef}
+          className="p-4 sm:p-6 flex-1 overflow-y-auto space-y-5 sm:space-y-6"
+        >
           {activeTab === 'custom' ? (
             <>
               {/* 1. Modalidad de Juego */}
@@ -222,12 +245,39 @@ export const NewCaseModal: React.FC<NewCaseModalProps> = ({
             </>
           ) : (
             <div className="space-y-3">
-              <label className="text-xs font-bold uppercase tracking-wider text-blue-300 block">
-                Seleccione un Caso Clínico Curado por Médicos Docentes
-              </label>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <label className="text-xs font-bold uppercase tracking-wider text-blue-300 block">
+                  Casos Clínicos Curados ({filteredPresets.length})
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { id: 'all', label: `Todos (${ALL_CURATED.length})` },
+                    {
+                      id: 'outpatient',
+                      label: `Consulta Externa (${ALL_CURATED.filter((c) => c.solution.optimalTreatment.hospitalizationDecision === 'Ambulatorio').length})`,
+                    },
+                    { id: 'principiante', label: 'Principiante' },
+                    { id: 'medico_general', label: 'Médico General' },
+                    { id: 'complex', label: 'Urgencias / Complejos' },
+                  ].map((f) => (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => setPresetFilter(f.id as any)}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors cursor-pointer ${
+                        presetFilter === f.id
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-[#040B1B] border border-blue-900/70 text-blue-200 hover:border-blue-600'
+                      }`}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
               <div className="space-y-2.5">
-                {ALL_CURATED.map((preset) => (
+                {filteredPresets.map((preset) => (
                   <div
                     key={preset.id}
                     onClick={() => handlePresetSelect(preset.id)}
@@ -239,7 +289,11 @@ export const NewCaseModal: React.FC<NewCaseModalProps> = ({
                         <span>·</span>
                         <span className="text-sky-300">{getModeLabel(preset.mode)}</span>
                         <span>·</span>
-                        <span className="text-blue-200/80">{preset.patientInfo.triageLevel}</span>
+                        <span className="text-emerald-300">
+                          {preset.solution.optimalTreatment.hospitalizationDecision === 'Ambulatorio'
+                            ? 'Consulta Externa'
+                            : preset.patientInfo.triageLevel}
+                        </span>
                       </div>
                       <h4 className="text-sm font-bold text-white mt-0.5 group-hover:text-blue-300 transition-colors">
                         {preset.patientInfo.name} ({preset.patientInfo.age} años, {preset.patientInfo.sex})

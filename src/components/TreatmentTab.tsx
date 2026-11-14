@@ -13,7 +13,7 @@ interface TreatmentTabProps {
   setReferralCriteria: (val: string) => void;
   followUpPlan: string;
   setFollowUpPlan: (val: string) => void;
-  onFinishCase: () => Promise<void>;
+  onFinishCase: (pendingDraft?: MedicationItem) => Promise<void>;
   isEvaluating: boolean;
 }
 
@@ -59,6 +59,24 @@ export const TreatmentTab: React.FC<TreatmentTabProps> = ({
     setMedications(medications.filter((m) => m.id !== id));
   };
 
+  const handleFinishWithPendingDraft = async () => {
+    let pendingDraft: MedicationItem | undefined;
+    if (newDrug.trim()) {
+      pendingDraft = {
+        id: `med-${Date.now()}`,
+        drug: newDrug.trim(),
+        dose: newDose.trim() || 'Dosis terapéutica estándar',
+        route: newRoute,
+        frequency: newFrequency,
+        duration: newDuration,
+      };
+      setMedications([...medications, pendingDraft]);
+      setNewDrug('');
+      setNewDose('');
+    }
+    await onFinishCase(pendingDraft);
+  };
+
   return (
     <div className="space-y-4 sm:space-y-6">
       {/* Intro Card */}
@@ -94,7 +112,14 @@ export const TreatmentTab: React.FC<TreatmentTabProps> = ({
                   className="bg-[#040B1B] border border-blue-900/70 rounded-xl p-3.5 space-y-1.5 text-xs"
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <span className="font-bold text-white text-sm">{med.drug}</span>
+                    <span className="font-bold text-white text-sm">
+                      {med.drug}
+                      {med.id.startsWith('med-stat-') && (
+                        <span className="ml-2 text-[10px] font-bold uppercase text-amber-300">
+                          · Aplicado STAT
+                        </span>
+                      )}
+                    </span>
                     <button
                       onClick={() => handleRemoveMedication(med.id)}
                       className="text-blue-300/70 hover:text-rose-400 p-1 shrink-0 cursor-pointer"
@@ -140,7 +165,14 @@ export const TreatmentTab: React.FC<TreatmentTabProps> = ({
                 <tbody className="divide-y divide-blue-900/50 font-sans">
                   {medications.map((med) => (
                     <tr key={med.id} className="hover:bg-[#040B1B]/60">
-                      <td className="py-3 px-3 font-semibold text-white">{med.drug}</td>
+                      <td className="py-3 px-3 font-semibold text-white">
+                        {med.drug}
+                        {med.id.startsWith('med-stat-') && (
+                          <span className="ml-2 text-[10px] font-bold uppercase text-amber-300">
+                            · STAT
+                          </span>
+                        )}
+                      </td>
                       <td className="py-3 px-3 text-blue-100">{med.dose}</td>
                       <td className="py-3 px-3 text-sky-300">{med.route}</td>
                       <td className="py-3 px-3 text-blue-100">{med.frequency}</td>
@@ -238,7 +270,14 @@ export const TreatmentTab: React.FC<TreatmentTabProps> = ({
             </div>
           </div>
 
-          <div className="flex justify-end pt-1">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1">
+            {newDrug.trim() ? (
+              <span className="text-[11px] text-amber-300">
+                Borrador detectado: se agregará automáticamente al esquema al enviar si aún no pulsó «Agregar».
+              </span>
+            ) : (
+              <span />
+            )}
             <button
               type="submit"
               disabled={!newDrug.trim()}
@@ -265,14 +304,16 @@ export const TreatmentTab: React.FC<TreatmentTabProps> = ({
         />
       </div>
 
-      {/* 3. Nivel de Hospitalización / Destino del Paciente */}
+      {/* 3. Nivel de Atención / Destino Clínico (sin pistas) */}
       <div className="bg-[#07132B] border border-blue-900/60 rounded-xl p-4 sm:p-5 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <label className="text-xs font-bold uppercase tracking-wider text-blue-300 flex items-center gap-2">
             <Hospital className="w-4 h-4 text-blue-400 shrink-0" />
-            <span>3. Decisión de Hospitalización *</span>
+            <span>3. Conducta y Destino Clínico *</span>
           </label>
-          <span className="text-[11px] text-blue-300/80 font-medium">Puntaje: 5 pts</span>
+          <span className="text-[11px] text-blue-300/80 font-medium">
+            {hospitalizationDecision ? 'Puntaje: 5 pts' : 'Seleccione una opción · 5 pts'}
+          </span>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
@@ -280,36 +321,31 @@ export const TreatmentTab: React.FC<TreatmentTabProps> = ({
             {
               id: 'Ambulatorio',
               label: 'Manejo Ambulatorio',
-              desc: 'Alta con signos de alarma y cita en 24-48h',
             },
             {
               id: 'Observación Urgencias',
               label: 'Observación Urgencias',
-              desc: 'Vigilancia corta (6-24 horas)',
             },
             {
               id: 'Hospitalización en Sala',
               label: 'Hospitalización en Sala',
-              desc: 'Medicina Interna, Cirugía o Pediatría',
             },
             {
               id: 'Unidad de Cuidados Intensivos (UCI)',
-              label: 'Ingreso Inmediato a UCI',
-              desc: 'Paciente crítico inestable con soporte avanzado',
+              label: 'Unidad de Cuidados Intensivos (UCI)',
             },
           ].map((opt) => (
             <button
               key={opt.id}
               type="button"
               onClick={() => setHospitalizationDecision(opt.id)}
-              className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
+              className={`p-3.5 rounded-xl border text-center sm:text-left transition-all cursor-pointer ${
                 hospitalizationDecision === opt.id
                   ? 'bg-blue-600/25 border-blue-400 text-white shadow-sm ring-1 ring-blue-400/40'
                   : 'bg-[#040B1B] border-blue-900/70 text-blue-200 hover:border-blue-700'
               }`}
             >
-              <div className="text-xs font-bold text-white mb-0.5">{opt.label}</div>
-              <div className="text-[11px] text-blue-200/75">{opt.desc}</div>
+              <div className="text-xs font-bold text-white">{opt.label}</div>
             </button>
           ))}
         </div>
@@ -350,7 +386,7 @@ export const TreatmentTab: React.FC<TreatmentTabProps> = ({
         <div>
           <span className="font-bold text-amber-300">Auditoría de Seguridad del Paciente:</span>
           <p className="mt-0.5 text-blue-100/85 leading-relaxed">
-            Al enviar el caso para evaluación, el tribunal docente contrastará su plan con las guías internacionales vigentes (OMS, OPS, AHA, NICE) e inspeccionará posibles errores peligrosos.
+            Al enviar el caso para evaluación, el tribunal docente contrastará su plan con la normativa nacional (MINSA / LBM) y guías internacionales vigentes (OMS, OPS, AHA, NICE), e inspeccionará posibles errores peligrosos.
           </p>
         </div>
       </div>
@@ -358,7 +394,8 @@ export const TreatmentTab: React.FC<TreatmentTabProps> = ({
       {/* Primary Submit Action */}
       <div className="flex justify-end pt-2">
         <button
-          onClick={onFinishCase}
+          type="button"
+          onClick={() => void handleFinishWithPendingDraft()}
           disabled={isEvaluating}
           className="w-full sm:w-auto px-5 py-3.5 bg-white hover:bg-blue-100 disabled:opacity-50 text-[#030A1C] font-bold text-xs sm:text-sm rounded-xl flex items-center justify-center text-center gap-2 shadow-lg transition-all cursor-pointer"
         >

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   X,
   BookOpen,
@@ -538,6 +538,13 @@ const ACADEMIC_GUIDES: AcademicGuideCard[] = [
 export const ClinicalGuideModal: React.FC<ClinicalGuideModalProps> = ({ isOpen, onClose }) => {
   const [selectedCategory, setSelectedCategory] = useState<GuideCategory>('urgencias');
   const [searchTerm, setSearchTerm] = useState('');
+  const modalBodyRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (isOpen && modalBodyRef.current) {
+      modalBodyRef.current.scrollTop = 0;
+    }
+  }, [isOpen, selectedCategory]);
 
   const filteredGuides = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
@@ -647,7 +654,10 @@ export const ClinicalGuideModal: React.FC<ClinicalGuideModalProps> = ({ isOpen, 
         </div>
 
         {/* Generous Scrollable Academic Content */}
-        <div className="p-3.5 sm:p-6 flex-1 min-h-0 overflow-y-auto space-y-4">
+        <div
+          ref={modalBodyRef}
+          className="p-3.5 sm:p-6 flex-1 min-h-0 overflow-y-auto space-y-4"
+        >
           {filteredGuides.length === 0 ? (
             <div className="bg-[#040B1B] border border-blue-900/60 rounded-xl p-8 text-center text-xs text-blue-200/75 space-y-2">
               <p>No se encontraron protocolos ni escalas para "{searchTerm}".</p>

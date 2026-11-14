@@ -1,6 +1,7 @@
 import React from 'react';
 import { PlusCircle, History, BookOpen, Stethoscope, RefreshCw, Home, Calculator } from 'lucide-react';
 import { GameMode, Specialty } from '../types/clinical';
+import { PWAInstallButton } from './PWAInstallButton';
 
 interface NavbarProps {
   activeView: 'lobby' | 'simulation';
@@ -61,7 +62,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               Medical Case Simulator
             </span>
             <span className="text-[10px] sm:text-[11px] text-blue-300 font-medium truncate">
-              Simulador Clínico Universitario
+              Simulador Clínico Offline
             </span>
           </div>
         </button>
@@ -127,8 +128,9 @@ export const Navbar: React.FC<NavbarProps> = ({
           )}
         </nav>
 
-        {/* Zone 3: Primary CTA button */}
-        <div className="flex items-center shrink-0">
+        {/* Zone 3: PWA Install + Primary CTA button */}
+        <div className="flex items-center gap-2 shrink-0">
+          <PWAInstallButton />
           <button
             onClick={onOpenNewCaseModal}
             className="px-2.5 sm:px-3.5 py-2 text-xs font-bold text-[#030A1C] bg-white hover:bg-blue-100 rounded-lg shadow-sm transition-colors whitespace-nowrap shrink-0 flex items-center gap-1.5 cursor-pointer"

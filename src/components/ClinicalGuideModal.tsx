@@ -766,10 +766,11 @@ export const ClinicalGuideModal: React.FC<ClinicalGuideModalProps> = ({ isOpen, 
         </div>
 
         {/* Footer */}
-        <div className="px-4 sm:px-6 py-3 bg-[#040B1B] border-t border-blue-900/70 flex items-center justify-between gap-2 shrink-0">
-          <span className="text-[11px] text-blue-300/75">
-            {ACADEMIC_GUIDES.length} guías y escalas académicas integradas
-          </span>
+        <div className="px-4 sm:px-6 py-3 bg-[#040B1B] border-t border-blue-900/70 flex flex-wrap items-center justify-between gap-2 shrink-0">
+          <div className="text-[11px] text-blue-300/75">
+            <span>{ACADEMIC_GUIDES.length} guías y escalas académicas integradas (100 % offline)</span>
+            <span className="hidden sm:inline"> · Uso educativo: no sustituye el juicio clínico ni protocolos locales.</span>
+          </div>
           <button
             onClick={onClose}
             className="px-5 py-2 bg-white hover:bg-blue-100 text-[#030A1C] text-xs font-bold rounded-lg transition-colors cursor-pointer"

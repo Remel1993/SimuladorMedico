@@ -1,6 +1,6 @@
 import React from 'react';
-import { VitalSigns } from '../types/clinical';
-import { Activity, Heart, Thermometer, Wind, Droplets, Droplet, ShieldAlert, Brain, Zap } from 'lucide-react';
+import { ClinicalEvolutionState, VitalSigns } from '../types/clinical';
+import { Activity, Heart, Thermometer, Wind, Droplets, Droplet, ShieldAlert, Brain, Zap, AlertTriangle, Skull } from 'lucide-react';
 
 interface VitalSignsMonitorProps {
   vitals: VitalSigns;
@@ -9,6 +9,8 @@ interface VitalSignsMonitorProps {
   triageLevel: string;
   onOpenStat?: () => void;
   showStatButton?: boolean;
+  evolutionState?: ClinicalEvolutionState;
+  isDeceased?: boolean;
 }
 
 export const VitalSignsMonitor: React.FC<VitalSignsMonitorProps> = ({
@@ -17,7 +19,12 @@ export const VitalSignsMonitor: React.FC<VitalSignsMonitorProps> = ({
   statCount = 0,
   onOpenStat,
   showStatButton = false,
+  evolutionState,
+  isDeceased = false,
 }) => {
+  const deceased = Boolean(
+    isDeceased || vitals.heartRate === 0 || (vitals.bloodPressure || '').startsWith('0/')
+  );
   const bpMatch = vitals.bloodPressure.match(/(\d+)\/(\d+)/);
   const baseBpMatch = baselineVitals?.bloodPressure.match(/(\d+)\/(\d+)/);
   let mapText = '--';
@@ -44,10 +51,13 @@ export const VitalSignsMonitor: React.FC<VitalSignsMonitorProps> = ({
   const gcsDiff = baselineVitals ? vitals.glasgow - baselineVitals.glasgow : 0;
 
   const isTachycardic = vitals.heartRate > 100;
+  const isBradycardic = vitals.heartRate < 50;
   const isHypotensive = bpMatch && parseInt(bpMatch[1], 10) < 90;
   const isFebrile = vitals.temperature >= 38.0;
   const isHypoxemic = vitals.oxygenSaturation < 94;
   const isTachypneic = vitals.respiratoryRate > 20;
+  const isBradypneic = vitals.respiratoryRate <= 10;
+  const isLowGlasgow = vitals.glasgow <= 12;
 
   const isHypoglycemic = hasGlucose && (vitals.bloodGlucose as number) < 70;
   const isSevereHyperglycemic = hasGlucose && (vitals.bloodGlucose as number) >= 250;
@@ -67,9 +77,13 @@ export const VitalSignsMonitor: React.FC<VitalSignsMonitorProps> = ({
               </div>
               <div className="h-3.5 w-px bg-blue-900/70 hidden sm:block" />
               <div className="hidden sm:flex items-center gap-1.5 text-[11px] sm:text-xs text-blue-200 min-w-0">
-                <ShieldAlert className="w-3.5 h-3.5 text-sky-400 shrink-0" />
-                <span className="font-medium text-white truncate">
-                  {statCount > 0 ? `Monitor en Vivo · ${statCount} STAT` : 'Monitorización Clínica'}
+                <ShieldAlert className={`w-3.5 h-3.5 shrink-0 ${deceased ? 'text-rose-400' : 'text-sky-400'}`} />
+                <span className={`font-medium truncate ${deceased ? 'text-rose-300 font-bold' : 'text-white'}`}>
+                  {deceased
+                    ? 'ASISTOLIA · FALLECIDO'
+                    : statCount > 0
+                      ? `Monitor en Vivo · ${statCount} STAT`
+                      : 'Monitorización Clínica'}
                 </span>
               </div>
             </div>
@@ -77,13 +91,22 @@ export const VitalSignsMonitor: React.FC<VitalSignsMonitorProps> = ({
             {showStatButton && onOpenStat && (
               <button
                 type="button"
-                onClick={onOpenStat}
-                className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs sm:text-sm font-bold flex items-center gap-2 whitespace-nowrap shrink-0 shadow-md transition-colors cursor-pointer"
-                title="Aplicar tratamiento STAT de emergencia y conversar con el paciente"
+                onClick={deceased ? undefined : onOpenStat}
+                disabled={deceased}
+                className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 whitespace-nowrap shrink-0 shadow-md transition-colors ${
+                  deceased
+                    ? 'bg-rose-950/90 border border-rose-700 text-rose-300 cursor-not-allowed opacity-85'
+                    : 'bg-rose-600 hover:bg-rose-500 text-white cursor-pointer'
+                }`}
+                title={
+                  deceased
+                    ? 'Paciente en asistolia tras muerte inmediata por iatrogenia'
+                    : 'Aplicar tratamiento STAT de emergencia y conversar con el paciente'
+                }
               >
-                <Zap className="w-4 h-4 shrink-0" />
-                <span>Aplicación STAT</span>
-                {statCount > 0 && (
+                {deceased ? <Skull className="w-4 h-4 shrink-0" /> : <Zap className="w-4 h-4 shrink-0" />}
+                <span>{deceased ? 'Asistolia · Fallecido' : 'Aplicación STAT'}</span>
+                {!deceased && statCount > 0 && (
                   <span className="text-[11px] font-mono tabular-nums bg-black/30 px-1.5 py-0.5 rounded">
                     {statCount}
                   </span>
@@ -122,9 +145,11 @@ export const VitalSignsMonitor: React.FC<VitalSignsMonitorProps> = ({
             {/* Frecuencia Cardíaca */}
             <div
               className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border transition-colors ${
-                isTachycardic
-                  ? 'bg-amber-950/40 border-amber-700/60 text-amber-200'
-                  : 'bg-[#07132B] border-blue-900/70 text-blue-200'
+                isBradycardic
+                  ? 'bg-rose-950/50 border-rose-700/70 text-rose-200'
+                  : isTachycardic
+                    ? 'bg-amber-950/40 border-amber-700/60 text-amber-200'
+                    : 'bg-[#07132B] border-blue-900/70 text-blue-200'
               }`}
             >
               <Heart className="w-3.5 h-3.5 text-rose-400 shrink-0" />
@@ -141,9 +166,11 @@ export const VitalSignsMonitor: React.FC<VitalSignsMonitorProps> = ({
             {/* Frecuencia Respiratoria */}
             <div
               className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border transition-colors ${
-                isTachypneic
-                  ? 'bg-amber-950/40 border-amber-700/60 text-amber-200'
-                  : 'bg-[#07132B] border-blue-900/70 text-white'
+                isBradypneic
+                  ? 'bg-rose-950/50 border-rose-700/70 text-rose-200'
+                  : isTachypneic
+                    ? 'bg-amber-950/40 border-amber-700/60 text-amber-200'
+                    : 'bg-[#07132B] border-blue-900/70 text-white'
               }`}
             >
               <Wind className="w-3.5 h-3.5 text-sky-400 shrink-0" />
@@ -189,7 +216,7 @@ export const VitalSignsMonitor: React.FC<VitalSignsMonitorProps> = ({
               <span className="text-sm font-bold font-mono tracking-tight">{vitals.oxygenSaturation}</span>
               <span className="text-[10px] text-blue-300/80">%</span>
               {spo2Diff !== 0 && (
-                <span className="text-[10px] font-bold text-emerald-300">
+                <span className={`text-[10px] font-bold ${spo2Diff > 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
                   ({spo2Diff > 0 ? '+' : ''}{spo2Diff})
                 </span>
               )}
@@ -220,24 +247,52 @@ export const VitalSignsMonitor: React.FC<VitalSignsMonitorProps> = ({
             </div>
 
             {/* Glasgow */}
-            <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border bg-[#07132B] border-blue-900/70 text-white">
+            <div
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border transition-colors ${
+                isLowGlasgow
+                  ? 'bg-rose-950/50 border-rose-700/70 text-rose-200'
+                  : 'bg-[#07132B] border-blue-900/70 text-white'
+              }`}
+            >
               <Brain className="w-3.5 h-3.5 text-blue-400 shrink-0" />
               <span className="text-[10px] uppercase font-sans text-blue-300">Glasgow</span>
               <span
                 className={`text-sm font-bold font-mono tracking-tight ${
-                  vitals.glasgow < 15 ? 'text-amber-400' : 'text-white'
+                  isLowGlasgow ? 'text-rose-300' : vitals.glasgow < 15 ? 'text-amber-400' : 'text-white'
                 }`}
               >
                 {vitals.glasgow}/15
               </span>
               {gcsDiff !== 0 && (
-                <span className="text-[10px] font-bold text-emerald-300">
+                <span className={`text-[10px] font-bold ${gcsDiff > 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
                   ({gcsDiff > 0 ? '+' : ''}{gcsDiff})
                 </span>
               )}
             </div>
           </div>
         </div>
+
+        {evolutionState && (evolutionState.activeAlerts.length > 0 || evolutionState.trajectory !== 'estable') && (
+          <div
+            className={`mt-2 px-3 py-1.5 rounded-lg border text-[11px] flex flex-wrap items-center justify-between gap-2 ${
+              evolutionState.trajectory === 'critico' || evolutionState.trajectory === 'deterioro'
+                ? 'bg-rose-950/60 border-rose-600/70 text-rose-100'
+                : evolutionState.trajectory === 'mejorando'
+                  ? 'bg-emerald-950/50 border-emerald-600/60 text-emerald-100'
+                  : 'bg-[#07132B] border-amber-600/60 text-amber-100'
+            }`}
+          >
+            <div className="flex items-center gap-1.5 min-w-0">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-300" />
+              <span className="font-semibold">
+                {evolutionState.activeAlerts[0] || evolutionState.summaryNote}
+              </span>
+            </div>
+            <span className="text-[10px] font-mono uppercase tracking-wider opacity-90 shrink-0">
+              Evolución: {evolutionState.trajectory}
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );

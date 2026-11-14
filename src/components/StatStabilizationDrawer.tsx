@@ -20,6 +20,8 @@ import {
   X,
   Clock,
   ShieldCheck,
+  Skull,
+  AlertOctagon,
 } from 'lucide-react';
 import {
   ChatMessage,
@@ -44,6 +46,7 @@ interface StatStabilizationDrawerProps {
   onApplyStat: (input: StatApplyInput) => void;
   onSendMessage: (text: string) => Promise<void>;
   isChatLoading: boolean;
+  isDeceased?: boolean;
 }
 
 type CategoryFilter = 'Todos' | StatPreset['category'];
@@ -80,6 +83,7 @@ export const StatStabilizationDrawer: React.FC<StatStabilizationDrawerProps> = (
   onApplyStat,
   onSendMessage,
   isChatLoading,
+  isDeceased = false,
 }) => {
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('Todos');
   const [selectedPresetId, setSelectedPresetId] = useState<string | undefined>(undefined);
@@ -95,6 +99,8 @@ export const StatStabilizationDrawer: React.FC<StatStabilizationDrawerProps> = (
 
   const isPediatric = caseData.patientInfo.age < 12;
   const isExamenMode = caseData.mode === 'examen';
+  const isUnconscious = !isDeceased && liveVitals.glasgow <= 9;
+  const isChatBlocked = Boolean(isDeceased || isUnconscious);
 
   const filteredPresets =
     categoryFilter === 'Todos'
@@ -159,7 +165,7 @@ export const StatStabilizationDrawer: React.FC<StatStabilizationDrawerProps> = (
 
   const handleApplyOrder = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!drug.trim()) return;
+    if (isDeceased || !drug.trim()) return;
     onApplyStat({
       presetId: selectedPresetId,
       label: drug.trim(),
@@ -176,7 +182,7 @@ export const StatStabilizationDrawer: React.FC<StatStabilizationDrawerProps> = (
 
   const handleSendChat = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!chatInput.trim() || isChatLoading) return;
+    if (!chatInput.trim() || isChatLoading || isChatBlocked) return;
     const text = chatInput.trim();
     setChatInput('');
     await onSendMessage(text);
@@ -428,6 +434,13 @@ export const StatStabilizationDrawer: React.FC<StatStabilizationDrawerProps> = (
               </div>
 
               {/* Quick-Load Chips */}
+              {isDeceased && (
+                <div className="bg-rose-950/85 border border-rose-600 rounded-lg px-3 py-2 text-[11px] text-rose-100 flex items-center gap-2">
+                  <Skull className="w-4 h-4 text-rose-300 shrink-0" />
+                  <span>Paciente en asistolia tras muerte inmediata por iatrogenia. No es posible administrar más dosis STAT.</span>
+                </div>
+              )}
+
               <div>
                 <div className="text-[11px] sm:text-xs text-blue-300/85 mb-2">
                   Toque una opción rápida para cargarla (puede editar la dosis antes de aplicar):
@@ -439,8 +452,9 @@ export const StatStabilizationDrawer: React.FC<StatStabilizationDrawerProps> = (
                       <button
                         key={preset.id}
                         type="button"
+                        disabled={isDeceased}
                         onClick={() => handleLoadPreset(preset)}
-                        className={`px-3 py-2.5 rounded-xl text-left text-xs font-medium border transition-colors cursor-pointer flex items-center justify-between gap-2 ${
+                        className={`px-3 py-2.5 rounded-xl text-left text-xs font-medium border transition-colors cursor-pointer disabled:opacity-40 disabled:pointer-events-none flex items-center justify-between gap-2 ${
                           isSelected
                             ? 'bg-amber-500/20 border-amber-400 text-amber-200 ring-1 ring-amber-400/40'
                             : 'bg-[#040B1B] hover:bg-[#0D2149] border-blue-900/70 text-blue-100 hover:text-white'
@@ -466,12 +480,13 @@ export const StatStabilizationDrawer: React.FC<StatStabilizationDrawerProps> = (
                   <input
                     type="text"
                     value={drug}
+                    disabled={isDeceased}
                     onChange={(e) => {
                       setDrug(e.target.value);
                       if (selectedPresetId) setSelectedPresetId(undefined);
                     }}
                     placeholder="Ej. Labetalol, Solución Salina 0.9%, Oxígeno..."
-                    className="w-full bg-[#07132B] border border-blue-900/70 rounded-lg px-3 py-2 text-xs text-white placeholder-blue-300/45 focus:outline-none focus:border-blue-400"
+                    className="w-full bg-[#07132B] border border-blue-900/70 rounded-lg px-3 py-2 text-xs text-white placeholder-blue-300/45 focus:outline-none focus:border-blue-400 disabled:opacity-45"
                   />
                 </div>
 
@@ -484,17 +499,19 @@ export const StatStabilizationDrawer: React.FC<StatStabilizationDrawerProps> = (
                       ref={doseInputRef}
                       type="text"
                       value={dose}
+                      disabled={isDeceased}
                       onChange={(e) => setDose(e.target.value)}
                       placeholder="Ej. 20 mg, 80 mg, 1000 mL..."
-                      className="w-full bg-[#07132B] border border-blue-900/70 rounded-lg px-3 py-2 text-xs text-white font-mono placeholder-blue-300/45 focus:outline-none focus:border-amber-400"
+                      className="w-full bg-[#07132B] border border-blue-900/70 rounded-lg px-3 py-2 text-xs text-white font-mono placeholder-blue-300/45 focus:outline-none focus:border-amber-400 disabled:opacity-45"
                     />
                   </div>
                   <div>
                     <label className="text-[10px] text-blue-200/80 block mb-1">Vía</label>
                     <select
                       value={route}
+                      disabled={isDeceased}
                       onChange={(e) => setRoute(e.target.value)}
-                      className="w-full bg-[#07132B] border border-blue-900/70 rounded-lg px-2.5 py-2 text-xs text-white focus:outline-none focus:border-blue-400"
+                      className="w-full bg-[#07132B] border border-blue-900/70 rounded-lg px-2.5 py-2 text-xs text-white focus:outline-none focus:border-blue-400 disabled:opacity-45"
                     >
                       <option value="Intravenosa (IV)">Intravenosa (IV)</option>
                       <option value="Intramuscular (IM)">Intramuscular (IM)</option>
@@ -508,11 +525,11 @@ export const StatStabilizationDrawer: React.FC<StatStabilizationDrawerProps> = (
 
                 <button
                   type="submit"
-                  disabled={!drug.trim()}
+                  disabled={isDeceased || !drug.trim()}
                   className="w-full py-2.5 px-3 rounded-lg bg-rose-600 hover:bg-rose-500 disabled:opacity-45 disabled:pointer-events-none text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                 >
                   <Zap className="w-4 h-4 shrink-0" />
-                  <span>Aplicar STAT al Paciente</span>
+                  <span>{isDeceased ? 'Paciente Fallecido' : 'Aplicar STAT al Paciente'}</span>
                 </button>
               </form>
             </div>
@@ -684,6 +701,23 @@ export const StatStabilizationDrawer: React.FC<StatStabilizationDrawerProps> = (
               )}
             </div>
 
+            {/* Unconscious / Deceased Notice in Revaluation Chat */}
+            {isDeceased ? (
+              <div className="bg-rose-950/90 border-t border-rose-600 px-3.5 py-2 text-[11px] text-rose-100 flex items-center gap-2 shrink-0">
+                <Skull className="w-4 h-4 text-rose-300 shrink-0" />
+                <span>
+                  <strong>PACIENTE FALLECIDO (ASISTOLIA):</strong> No hay respuesta verbal ni neurológica.
+                </span>
+              </div>
+            ) : isUnconscious ? (
+              <div className="bg-rose-950/75 border-t border-rose-600/80 px-3.5 py-2 text-[11px] text-rose-100 flex items-center gap-2 shrink-0">
+                <AlertOctagon className="w-4 h-4 text-rose-300 shrink-0" />
+                <span>
+                  <strong>Paciente inconsciente (Glasgow {liveVitals.glasgow}/15):</strong> No responde preguntas hasta que logre estabilizarlo o revertir la toxicidad con un antídoto STAT en el panel izquierdo.
+                </span>
+              </div>
+            ) : null}
+
             {/* Suggested Post-STAT Prompts */}
             {isExamenMode ? (
               <div className="bg-[#040B1B] border-t border-blue-900/60 px-3.5 py-2 text-[11px] text-amber-200/90 flex items-center gap-2 shrink-0">
@@ -697,9 +731,9 @@ export const StatStabilizationDrawer: React.FC<StatStabilizationDrawerProps> = (
                     <button
                       key={idx}
                       type="button"
-                      disabled={isChatLoading}
+                      disabled={isChatLoading || isChatBlocked}
                       onClick={() => void onSendMessage(q)}
-                      className="px-2.5 py-1.5 rounded-lg bg-[#0C1D42] hover:bg-blue-700 text-blue-100 hover:text-white text-xs border border-blue-800/70 transition-colors whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                      className="px-2.5 py-1.5 rounded-lg bg-[#0C1D42] hover:bg-blue-700 text-blue-100 hover:text-white text-xs border border-blue-800/70 transition-colors whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-40 disabled:pointer-events-none flex items-center gap-1.5"
                     >
                       <MessageCircleQuestion className="w-3 h-3 text-sky-300 shrink-0" />
                       <span>{q}</span>
@@ -718,13 +752,19 @@ export const StatStabilizationDrawer: React.FC<StatStabilizationDrawerProps> = (
                 type="text"
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
-                placeholder="Pregunte al paciente cómo se siente después del tratamiento STAT..."
-                disabled={isChatLoading}
-                className="flex-1 min-w-0 bg-[#07132B] border border-blue-800/80 rounded-lg px-3 py-2.5 text-xs sm:text-sm text-white placeholder-blue-300/50 focus:outline-none focus:border-blue-400"
+                placeholder={
+                  isDeceased
+                    ? 'Paciente fallecido — sin respuesta'
+                    : isUnconscious
+                      ? `Paciente inconsciente (Glasgow ${liveVitals.glasgow}/15) — administre rescate o antídoto arriba`
+                      : 'Pregunte al paciente cómo se siente después del tratamiento STAT...'
+                }
+                disabled={isChatLoading || isChatBlocked}
+                className="flex-1 min-w-0 bg-[#07132B] border border-blue-800/80 rounded-lg px-3 py-2.5 text-xs sm:text-sm text-white placeholder-blue-300/50 focus:outline-none focus:border-blue-400 disabled:opacity-50"
               />
               <button
                 type="submit"
-                disabled={!chatInput.trim() || isChatLoading}
+                disabled={!chatInput.trim() || isChatLoading || isChatBlocked}
                 className="px-3 sm:px-4 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:pointer-events-none text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
               >
                 <span className="hidden sm:inline">Enviar</span>

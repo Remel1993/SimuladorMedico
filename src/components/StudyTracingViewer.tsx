@@ -58,6 +58,7 @@ export function detectTracingKind(study: ComplementaryStudy): TracingKind {
 
 interface EcgProfile {
   hr: number;
+  isAsystole: boolean;
   isAFib: boolean;
   isParoxysmalMix: boolean;
   isSVT: boolean;
@@ -85,10 +86,48 @@ export function parseEcgProfile(study: ComplementaryStudy, vitalSigns?: VitalSig
   const hasAbsentP = /ausencia(?:\s+total)?\s+de\s+ondas?\s+p|sustituidas\s+por\s+ondas?\s+f/.test(txt);
   const txtNoNeg = stripMedicalNegations(txt);
 
-  const hrMatch = txt.match(/(?:fc(?:\s+media)?|frecuencia(?:\s+cardiaca|\s+ventricular\s+media)?)\s*(?:de|:)?\s*(\d{2,3})\s*(?:lpm|bpm)?/)
-    || txt.match(/(\d{2,3})\s*(?:lpm|bpm|latidos)/);
-  const parsedHr = hrMatch ? Number(hrMatch[1]) : vitalSigns?.heartRate || 76;
-  const hr = Math.max(36, Math.min(190, parsedHr));
+  const hrMatch =
+    txt.match(/(?:fc(?:\s+media)?|frecuencia(?:\s+cardiaca|\s+ventricular\s+media)?)\s*(?:de|:)?\s*(\d{1,3})\s*(?:lpm|bpm)?/) ||
+    txt.match(/\b(\d{1,3})\s*(?:lpm|bpm|latidos)\b/);
+
+  const isAsystole =
+    /\b(asistolia|trazo isoelectrico|paro cardiorrespiratorio|paro cardiaco)\b/.test(txt) ||
+    vitalSigns?.heartRate === 0 ||
+    (vitalSigns?.bloodPressure || '').startsWith('0/') ||
+    hrMatch?.[1] === '0';
+
+  if (isAsystole) {
+    return {
+      hr: 0,
+      isAsystole: true,
+      isAFib: false,
+      isParoxysmalMix: false,
+      isSVT: false,
+      isCompleteAVBlock: false,
+      isAnteriorSTEMI: false,
+      isExtensiveAnterior: false,
+      isInferiorSTEMI: false,
+      isLateralSTEMI: false,
+      stElevationMv: 0,
+      isStDepression: false,
+      isPericarditis: false,
+      isPeakedT: false,
+      isS1Q3T3: false,
+      isInvertedT: false,
+      invertedTLeads: null,
+      isLVH: false,
+      isAlternans: false,
+      isLongQT: false,
+      isFlatT: false,
+    };
+  }
+
+  const parsedHr = hrMatch
+    ? Number(hrMatch[1])
+    : typeof vitalSigns?.heartRate === 'number'
+      ? vitalSigns.heartRate
+      : 76;
+  const hr = Math.max(24, Math.min(210, parsedHr));
 
   const stMmMatch = txtNoNeg.match(/(?:elevacion|supradesnivel)[^.,;]{0,35}?(\d(?:\.\d)?)\s*mm/);
   const stElevationMv = stMmMatch ? Math.min(0.65, Math.max(0.25, Number(stMmMatch[1]) * 0.1)) : 0.42;
@@ -155,6 +194,7 @@ export function parseEcgProfile(study: ComplementaryStudy, vitalSigns?: VitalSig
 
   return {
     hr,
+    isAsystole: false,
     isAFib,
     isParoxysmalMix,
     isSVT,
@@ -413,6 +453,11 @@ function buildLeadPolylinePoints(
   pxPerSec: number,
   pxPerMv: number
 ): string {
+  if (profile.isAsystole || profile.hr <= 0) {
+    const xEnd = x0 + durationSec * pxPerSec;
+    return `${x0.toFixed(1)},${yBaseline.toFixed(1)} ${xEnd.toFixed(1)},${yBaseline.toFixed(1)}`;
+  }
+
   const baseRR = 60 / profile.hr;
   const afibFactors = [0.64, 1.08, 0.56, 1.24, 0.72, 0.94, 0.58, 1.15, 0.81, 1.02, 0.66, 1.12];
   const beatStarts: number[] = [0.08];
@@ -489,7 +534,13 @@ const EcgTwelveLeadViewer: React.FC<{
             <Activity className="w-4 h-4 text-sky-400" />
             Trazado Electrocardiográfico de 12 Derivaciones
           </span>
-          <span className="text-[11px] text-blue-300/80">25 mm/s · 10 mm/mV · FC ~{profile.hr} lpm</span>
+          {profile.isAsystole ? (
+            <span className="text-[11px] font-bold text-rose-300 bg-rose-950/70 border border-rose-500/70 px-2 py-0.5 rounded">
+              25 mm/s · 10 mm/mV · FC 0 lpm (ASISTOLIA)
+            </span>
+          ) : (
+            <span className="text-[11px] text-blue-300/80">25 mm/s · 10 mm/mV · FC ~{profile.hr} lpm</span>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -759,7 +810,8 @@ const HolterEcgViewer: React.FC<{ study: ComplementaryStudy; vitalSigns?: VitalS
         : vitalSigns?.heartRate || 74;
 
   const profile: EcgProfile = {
-    hr: isAFib ? Math.max(96, meanHr) : meanHr,
+    hr: vitalSigns?.heartRate === 0 ? 0 : isAFib ? Math.max(96, meanHr) : meanHr,
+    isAsystole: vitalSigns?.heartRate === 0,
     isAFib: isAFib && !isParoxysmal ? true : false,
     isParoxysmalMix: false,
     isSVT: false,

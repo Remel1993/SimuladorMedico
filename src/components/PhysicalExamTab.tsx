@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ClinicalCase, PhysicalExamFinding } from '../types/clinical';
+import { ClinicalCase, PhysicalExamFinding, VitalSigns } from '../types/clinical';
 import {
   Stethoscope,
   CheckCircle2,
@@ -12,6 +12,9 @@ import {
   LayoutGrid,
   ClipboardList,
   Activity,
+  AlertTriangle,
+  Sparkles,
+  Skull,
 } from 'lucide-react';
 
 interface PhysicalExamTabProps {
@@ -19,6 +22,9 @@ interface PhysicalExamTabProps {
   unlockedExamIds: string[];
   onUnlockExam: (examId: string) => void;
   onUnlockAllExams: () => void;
+  liveExams?: PhysicalExamFinding[];
+  liveVitals?: VitalSigns;
+  isDeceased?: boolean;
 }
 
 function getSystemIcon(system: string, className = 'w-4 h-4 shrink-0') {
@@ -49,6 +55,9 @@ export const PhysicalExamTab: React.FC<PhysicalExamTabProps> = ({
   unlockedExamIds,
   onUnlockExam,
   onUnlockAllExams,
+  liveExams,
+  liveVitals,
+  isDeceased = false,
 }) => {
   const [selectedSystem, setSelectedSystem] = useState<string>('todos');
 
@@ -63,14 +72,17 @@ export const PhysicalExamTab: React.FC<PhysicalExamTabProps> = ({
     'Osteomuscular y Piel',
   ];
 
-  const filteredPool = caseData.physicalExamPool.filter((pe) => {
+  const examPool = liveExams || caseData.physicalExamPool;
+
+  const filteredPool = examPool.filter((pe) => {
     if (selectedSystem === 'todos') return true;
     return pe.system === selectedSystem;
   });
 
   const isExamMode = caseData.mode === 'examen';
-  const totalPoolCount = caseData.physicalExamPool.length;
-  const unlockedCount = caseData.physicalExamPool.filter((pe) => unlockedExamIds.includes(pe.id)).length;
+  const totalPoolCount = examPool.length;
+  const unlockedCount = examPool.filter((pe) => unlockedExamIds.includes(pe.id)).length;
+  const hasLiveEvents = isDeceased || examPool.some((pe) => Boolean(pe.liveStatus));
 
   return (
     <div className="space-y-4 sm:space-y-6">
@@ -86,8 +98,8 @@ export const PhysicalExamTab: React.FC<PhysicalExamTabProps> = ({
             </div>
             <p className="text-xs text-blue-200/80 mt-1">
               {isExamMode
-                ? 'Modo Examen: seleccione manualmente únicamente las maniobras pertinentes. No se resaltarán automáticamente los hallazgos anormales.'
-                : 'Priorice y ejecute las maniobras clínicas dirigidas a los sistemas pertinentes para sustentar su diagnóstico.'}
+                ? 'Modo Examen: seleccione manualmente únicamente las maniobras pertinentes. Los hallazgos reflejan el estado clínico actual del paciente.'
+                : 'Priorice y ejecute las maniobras clínicas dirigidas a los sistemas pertinentes. Los hallazgos se actualizan en tiempo real con la evolución e intervenciones.'}
             </p>
           </div>
 
@@ -106,6 +118,35 @@ export const PhysicalExamTab: React.FC<PhysicalExamTabProps> = ({
             )}
           </div>
         </div>
+
+        {/* Real-time clinical status banner */}
+        {hasLiveEvents && (
+          <div
+            className={`mt-3 rounded-lg border px-3 py-2 text-xs flex flex-wrap items-center justify-between gap-2 ${
+              isDeceased
+                ? 'bg-rose-950/70 border-rose-500/80 text-rose-100'
+                : 'bg-[#040B1B] border-sky-700/60 text-sky-100'
+            }`}
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              {isDeceased ? (
+                <Skull className="w-4 h-4 text-rose-300 shrink-0" />
+              ) : (
+                <Activity className="w-4 h-4 text-sky-400 shrink-0" />
+              )}
+              <span>
+                {isDeceased
+                  ? 'Registro post-paro / asistolia: la exploración física refleja el estado terminal actual del paciente (sin pulso ni respiraciones).'
+                  : 'Reevaluación en tiempo real activa: las maniobras desbloqueadas y nuevas exploraciones reflejan cambios fisiológicos, fármacos STAT o eventos adversos actuales.'}
+              </span>
+            </div>
+            {liveVitals && (
+              <span className="font-mono text-[11px] text-white/90 shrink-0">
+                PA {liveVitals.bloodPressure} · FC {liveVitals.heartRate} · SpO₂ {liveVitals.oxygenSaturation}% · Glasgow {liveVitals.glasgow}/15
+              </span>
+            )}
+          </div>
+        )}
 
         {/* System Filter Segmented Tabs */}
         <div className="mt-4 flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar border-t border-blue-900/60 pt-3">
@@ -130,18 +171,19 @@ export const PhysicalExamTab: React.FC<PhysicalExamTabProps> = ({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 sm:gap-4">
         {filteredPool.map((exam: PhysicalExamFinding) => {
           const isUnlocked = unlockedExamIds.includes(exam.id);
+          const liveTag = exam.liveStatus;
+          const cardBorderClass = !isUnlocked
+            ? 'bg-[#040B1B] border-blue-900/60 hover:border-blue-700/70'
+            : !isExamMode && (liveTag === 'iatrogenia' || liveTag === 'critico')
+            ? 'bg-[#07132B] border-rose-500/80 shadow-md'
+            : !isExamMode && liveTag === 'mejoria'
+            ? 'bg-[#07132B] border-emerald-500/60 shadow-md'
+            : !isExamMode && exam.isAbnormal
+            ? 'bg-[#07132B] border-amber-500/60 shadow-md'
+            : 'bg-[#07132B] border-blue-700/70';
 
           return (
-            <div
-              key={exam.id}
-              className={`rounded-xl border transition-all ${
-                isUnlocked
-                  ? !isExamMode && exam.isAbnormal
-                    ? 'bg-[#07132B] border-amber-500/60 shadow-md'
-                    : 'bg-[#07132B] border-blue-700/70'
-                  : 'bg-[#040B1B] border-blue-900/60 hover:border-blue-700/70'
-              }`}
-            >
+            <div key={exam.id} className={`rounded-xl border transition-all ${cardBorderClass}`}>
               <div className="p-4 sm:p-5 flex flex-col h-full justify-between">
                 <div>
                   <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
@@ -153,11 +195,36 @@ export const PhysicalExamTab: React.FC<PhysicalExamTabProps> = ({
                         {exam.system}
                       </span>
                     </div>
-                    {isUnlocked && (
-                      <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-blue-950 text-blue-200 border border-blue-700/70">
-                        Explorado
-                      </span>
-                    )}
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {isUnlocked && liveTag && (
+                        isExamMode ? (
+                          <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-[#040B1B] text-sky-200 border border-sky-700/70">
+                            Actualizado en vivo
+                          </span>
+                        ) : (
+                          <span
+                            className={`text-[10px] font-semibold px-2 py-0.5 rounded border inline-flex items-center gap-1 ${
+                              liveTag === 'iatrogenia' || liveTag === 'critico'
+                                ? 'bg-rose-950/80 text-rose-200 border-rose-500/70'
+                                : liveTag === 'mejoria'
+                                ? 'bg-emerald-950/80 text-emerald-200 border-emerald-500/70'
+                                : 'bg-sky-950/80 text-sky-200 border-sky-500/70'
+                            }`}
+                          >
+                            {(liveTag === 'iatrogenia' || liveTag === 'critico') && (
+                              <AlertTriangle className="w-2.5 h-2.5 shrink-0" />
+                            )}
+                            {liveTag === 'mejoria' && <Sparkles className="w-2.5 h-2.5 shrink-0" />}
+                            <span>{exam.liveUpdateNote || 'Reevaluado en vivo'}</span>
+                          </span>
+                        )
+                      )}
+                      {isUnlocked && (
+                        <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-blue-950 text-blue-200 border border-blue-700/70">
+                          Explorado
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   <h3 className="text-sm font-bold text-white mb-2">{exam.name}</h3>
@@ -170,7 +237,7 @@ export const PhysicalExamTab: React.FC<PhysicalExamTabProps> = ({
                     </div>
                   ) : (
                     <p className="text-xs text-blue-300/60 italic mt-1">
-                      Maniobra pendiente. Toque para examinar al paciente y documentar el hallazgo.
+                      Maniobra pendiente. Toque para examinar al paciente y documentar el hallazgo actual.
                     </p>
                   )}
                 </div>

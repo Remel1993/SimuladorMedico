@@ -12,14 +12,20 @@ import {
   MessageCircleQuestion,
   HeartPulse,
   Zap,
+  AlertOctagon,
+  Skull,
 } from 'lucide-react';
-import { ChatMessage, ClinicalCase } from '../types/clinical';
+import { ChatMessage, ClinicalCase, VitalSigns } from '../types/clinical';
 
 interface AnamnesisTabProps {
   caseData: ClinicalCase;
   messages: ChatMessage[];
   onSendMessage: (text: string) => Promise<void>;
   isLoading: boolean;
+  liveVitals?: VitalSigns;
+  isDeceased?: boolean;
+  initialTtsEnabled?: boolean;
+  onToggleTts?: (enabled: boolean) => void;
 }
 
 const COMMON_QUESTIONS = [
@@ -40,13 +46,24 @@ export const AnamnesisTab: React.FC<AnamnesisTabProps> = ({
   messages,
   onSendMessage,
   isLoading,
+  liveVitals,
+  isDeceased = false,
+  initialTtsEnabled = false,
+  onToggleTts,
 }) => {
   const [inputText, setInputText] = useState('');
-  const [ttsEnabled, setTtsEnabled] = useState(false);
+  const [ttsEnabled, setTtsEnabled] = useState(initialTtsEnabled);
+
+  useEffect(() => {
+    setTtsEnabled(initialTtsEnabled);
+  }, [initialTtsEnabled]);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const lastSpokenIdRef = useRef<string | null>(null);
 
   const isPediatric = caseData.patientInfo.age < 12;
+  const currentGlasgow = liveVitals?.glasgow ?? caseData.vitalSigns.glasgow;
+  const isUnconscious = !isDeceased && currentGlasgow <= 9;
+  const isChatBlocked = Boolean(isDeceased || isUnconscious);
 
   const renderPatientAvatarIcon = (className: string) =>
     isPediatric ? <Baby className={className} /> : <UserRound className={className} />;
@@ -97,14 +114,14 @@ export const AnamnesisTab: React.FC<AnamnesisTabProps> = ({
 
   const handleSend = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!inputText.trim() || isLoading) return;
+    if (!inputText.trim() || isLoading || isChatBlocked) return;
     const textToSend = inputText.trim();
     setInputText('');
     await onSendMessage(textToSend);
   };
 
   const handleQuickQuestion = async (q: string) => {
-    if (isLoading) return;
+    if (isLoading || isChatBlocked) return;
     await onSendMessage(q);
   };
 
@@ -128,7 +145,13 @@ export const AnamnesisTab: React.FC<AnamnesisTabProps> = ({
 
         <button
           type="button"
-          onClick={() => setTtsEnabled((prev) => !prev)}
+          onClick={() =>
+            setTtsEnabled((prev) => {
+              const next = !prev;
+              onToggleTts?.(next);
+              return next;
+            })
+          }
           className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border transition-colors shrink-0 cursor-pointer ${
             ttsEnabled
               ? 'bg-blue-600/30 border-blue-500 text-white'
@@ -265,6 +288,23 @@ export const AnamnesisTab: React.FC<AnamnesisTabProps> = ({
 
       </div>
 
+      {/* Unconscious / Deceased Clinical Alert Banner */}
+      {isDeceased ? (
+        <div className="bg-rose-950/90 border-t border-rose-600 px-3.5 sm:px-4 py-2.5 text-xs text-rose-100 flex items-center gap-2">
+          <Skull className="w-4 h-4 text-rose-300 shrink-0" />
+          <span>
+            <strong>PACIENTE FALLECIDO (ASISTOLIA):</strong> El paciente perdió los signos vitales tras iatrogenia inmediata y no presenta respuesta verbal ni neurológica.
+          </span>
+        </div>
+      ) : isUnconscious ? (
+        <div className="bg-rose-950/75 border-t border-rose-600/80 px-3.5 sm:px-4 py-2.5 text-xs text-rose-100 flex items-center gap-2">
+          <AlertOctagon className="w-4 h-4 text-rose-300 shrink-0" />
+          <span>
+            <strong>Paciente inconsciente (Glasgow {currentGlasgow}/15):</strong> Se desestabilizó gravemente y <strong>NO responde preguntas</strong>. Aplique estabilización o antídoto urgente desde <strong>Aplicación STAT</strong>.
+          </span>
+        </div>
+      ) : null}
+
       {/* Suggested Quick Questions Carousel (Hidden in Modo Examen for genuine blind assessment) */}
       {caseData.mode === 'examen' ? (
         <div className="bg-[#040B1B] border-t border-blue-900/60 px-3 sm:px-4 py-2 text-[11px] text-amber-200/90 flex items-center gap-2">
@@ -288,8 +328,8 @@ export const AnamnesisTab: React.FC<AnamnesisTabProps> = ({
               <button
                 key={idx}
                 onClick={() => handleQuickQuestion(q)}
-                disabled={isLoading}
-                className="px-2.5 py-1.5 rounded-lg bg-[#0C1D42] hover:bg-blue-700 text-blue-100 hover:text-white text-xs border border-blue-800/70 transition-colors whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                disabled={isLoading || isChatBlocked}
+                className="px-2.5 py-1.5 rounded-lg bg-[#0C1D42] hover:bg-blue-700 text-blue-100 hover:text-white text-xs border border-blue-800/70 transition-colors whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-40 disabled:pointer-events-none flex items-center gap-1.5"
               >
                 <MessageCircleQuestion className="w-3 h-3 text-sky-300 shrink-0" />
                 <span>{q}</span>
@@ -311,13 +351,19 @@ export const AnamnesisTab: React.FC<AnamnesisTabProps> = ({
           type="text"
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
-          placeholder="Escriba su pregunta directa al paciente..."
-          disabled={isLoading}
-          className="flex-1 min-w-0 bg-[#07132B] border border-blue-800/80 rounded-lg px-3 sm:px-4 py-2.5 text-xs sm:text-sm text-white placeholder-blue-300/50 focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400"
+          placeholder={
+            isDeceased
+              ? 'Paciente fallecido — sin respuesta verbal posible'
+              : isUnconscious
+                ? `Paciente inconsciente (Glasgow ${currentGlasgow}/15) — aplique rescate STAT para reanimarlo`
+                : 'Escriba su pregunta directa al paciente...'
+          }
+          disabled={isLoading || isChatBlocked}
+          className="flex-1 min-w-0 bg-[#07132B] border border-blue-800/80 rounded-lg px-3 sm:px-4 py-2.5 text-xs sm:text-sm text-white placeholder-blue-300/50 focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400 disabled:opacity-50"
         />
         <button
           type="submit"
-          disabled={!inputText.trim() || isLoading}
+          disabled={!inputText.trim() || isLoading || isChatBlocked}
           className="px-3 sm:px-4 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:pointer-events-none text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
         >
           <span className="hidden sm:inline">Preguntar</span>

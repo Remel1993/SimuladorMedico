@@ -24,6 +24,10 @@ interface HomeDashboardProps {
   onOpenGuideModal: () => void;
   isLoading: boolean;
   history: SavedCaseRecord[];
+  totalCasesCount?: number;
+  initialMode?: GameMode;
+  initialSpecialty?: Specialty;
+  onPreferencesChange?: (mode: GameMode, specialty: Specialty) => void;
 }
 
 const ALL_CURATED = ALL_CURATED_CASES;
@@ -92,9 +96,23 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   onOpenGuideModal,
   isLoading,
   history,
+  totalCasesCount,
+  initialMode = 'medico_general',
+  initialSpecialty = 'aleatorio',
+  onPreferencesChange,
 }) => {
-  const [selectedMode, setSelectedMode] = useState<GameMode>('medico_general');
-  const [selectedSpecialty, setSelectedSpecialty] = useState<Specialty>('aleatorio');
+  const [selectedMode, setSelectedMode] = useState<GameMode>(initialMode);
+  const [selectedSpecialty, setSelectedSpecialty] = useState<Specialty>(initialSpecialty);
+
+  React.useEffect(() => {
+    setSelectedMode(initialMode);
+  }, [initialMode]);
+
+  React.useEffect(() => {
+    setSelectedSpecialty(initialSpecialty);
+  }, [initialSpecialty]);
+
+  const libraryCount = totalCasesCount ?? ALL_CURATED.length;
 
   const avgScore =
     history.length > 0
@@ -175,7 +193,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
             onClick={onOpenPresetsModal}
             className="w-full sm:w-auto px-3.5 py-2 bg-[#040B1B] hover:bg-[#0D2149] border border-blue-700/70 text-blue-200 hover:text-white rounded-lg text-xs font-semibold transition-colors cursor-pointer text-center shrink-0"
           >
-            Explorar {ALL_CURATED.length} Casos Validados
+            Explorar {libraryCount} Casos Validados
           </button>
         </div>
 
@@ -193,7 +211,10 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                 <button
                   key={mode.id}
                   type="button"
-                  onClick={() => setSelectedMode(mode.id)}
+                  onClick={() => {
+                    setSelectedMode(mode.id);
+                    onPreferencesChange?.(mode.id, selectedSpecialty);
+                  }}
                   className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-2.5 ${
                     isSelected
                       ? 'bg-blue-600/25 border-blue-400 text-white shadow-sm ring-1 ring-blue-400/40'
@@ -229,7 +250,10 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
               <button
                 key={spec.id}
                 type="button"
-                onClick={() => setSelectedSpecialty(spec.id)}
+                onClick={() => {
+                  setSelectedSpecialty(spec.id);
+                  onPreferencesChange?.(selectedMode, spec.id);
+                }}
                 className={`px-3 py-2.5 text-xs font-medium rounded-lg border text-left transition-all cursor-pointer truncate ${
                   selectedSpecialty === spec.id
                     ? 'bg-white text-[#030A1C] font-bold border-white shadow-sm'
@@ -293,6 +317,16 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
           </p>
         </div>
       </section>
+
+      {/* Offline & Educational Disclaimer */}
+      <footer className="rounded-xl border border-blue-900/50 bg-[#040B1B]/80 px-4 py-3 text-[11px] text-blue-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <span>
+          <strong className="text-sky-300">Motor Clínico 100 % Offline:</strong> Funciona sin internet, sin API Keys y sin consumo de tokens. Datos guardados en IndexedDB local.
+        </span>
+        <span className="text-blue-300/75">
+          Uso exclusivamente educativo; no sustituye el juicio clínico ni los protocolos locales vigentes.
+        </span>
+      </footer>
     </main>
   );
 };

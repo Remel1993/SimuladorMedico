@@ -346,6 +346,11 @@ export const ClinicalAuditTab: React.FC<ClinicalAuditTabProps> = ({
               {statAudit.vitalEvolutionSummary}
             </p>
             <p className="text-blue-100 leading-relaxed pt-1">{statAudit.narrative}</p>
+            {statAudit.immediateDeathReason && (
+              <p className="text-rose-200 font-semibold leading-relaxed pt-1 border-t border-rose-800/60">
+                Mecanismo letal inmediato: {statAudit.immediateDeathReason}
+              </p>
+            )}
           </div>
 
           {statAudit.interventionReviews.length > 0 && (
@@ -911,16 +916,42 @@ export const ClinicalAuditTab: React.FC<ClinicalAuditTabProps> = ({
           </ul>
         </div>
 
-        {/* 7. Guías y Literatura Médica */}
-        <div className="text-[11px] text-blue-200/80 border-t border-blue-900/60 pt-3">
-          <span className="font-semibold text-white uppercase tracking-wide block mb-1">
-            Referencias Bibliográficas y Guías de Práctica Clínica:
-          </span>
-          <ul className="space-y-0.5 text-blue-200/80 pl-4 list-disc">
-            {solution.guidelineReferences.map((ref, idx) => (
-              <li key={idx}>{ref}</li>
-            ))}
-          </ul>
+        {/* 7. Errores Frecuentes, Guías, Fecha de Revisión y Descargo Educativo */}
+        <div className="text-[11px] text-blue-200/80 border-t border-blue-900/60 pt-3 space-y-2.5">
+          {caseData.clinicalMetadata?.frequentErrors && caseData.clinicalMetadata.frequentErrors.length > 0 && (
+            <div className="bg-[#040B1B] border border-blue-900/60 rounded-lg p-3 space-y-1">
+              <span className="font-semibold text-amber-300 uppercase tracking-wide block">
+                Errores Frecuentes a Evitar en Este Cuadro:
+              </span>
+              <ul className="space-y-0.5 text-blue-100/90 pl-4 list-disc">
+                {caseData.clinicalMetadata.frequentErrors.map((err, idx) => (
+                  <li key={idx}>{err}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <div>
+            <span className="font-semibold text-white uppercase tracking-wide block mb-1">
+              Referencias Bibliográficas y Guías de Práctica Clínica:
+            </span>
+            <ul className="space-y-0.5 text-blue-200/80 pl-4 list-disc">
+              {(caseData.clinicalMetadata?.evidenceSources || solution.guidelineReferences).map((ref, idx) => (
+                <li key={idx}>{ref}</li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-blue-900/50 text-[10px] text-blue-300/80">
+            <span>
+              Última revisión clínica: <strong className="text-white">{caseData.clinicalMetadata?.lastReviewed || '2026-10-15'}</strong>
+              {caseData.clinicalMetadata?.reviewedBy ? ` · ${caseData.clinicalMetadata.reviewedBy}` : ''}
+            </span>
+            <span className="text-blue-200/75">
+              {caseData.clinicalMetadata?.educationalDisclaimer ||
+                'Herramienta educativa; no sustituye el juicio clínico ni los protocolos institucionales locales.'}
+            </span>
+          </div>
         </div>
       </div>
     </div>

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ClinicalCase, ComplementaryStudy } from '../types/clinical';
+import { ClinicalCase, ComplementaryStudy, VitalSigns } from '../types/clinical';
 import { HOSPITAL_SUBCATEGORY_ORDER } from '../utils/studiesCatalog';
 import { StudyTracingViewer } from './StudyTracingViewer';
 import {
@@ -23,6 +23,8 @@ import {
   Zap,
   Sparkles,
   Eye,
+  AlertTriangle,
+  Skull,
 } from 'lucide-react';
 
 interface DiagnosticStudiesTabProps {
@@ -30,6 +32,9 @@ interface DiagnosticStudiesTabProps {
   unlockedStudyIds: string[];
   onUnlockStudy: (studyId: string) => void;
   onUnlockAllStudies: () => void;
+  liveStudies?: ComplementaryStudy[];
+  liveVitals?: VitalSigns;
+  isDeceased?: boolean;
 }
 
 function getStudyIcon(study: ComplementaryStudy, className = 'w-4 h-4 shrink-0') {
@@ -76,12 +81,17 @@ export const DiagnosticStudiesTab: React.FC<DiagnosticStudiesTabProps> = ({
   unlockedStudyIds,
   onUnlockStudy,
   onUnlockAllStudies,
+  liveStudies,
+  liveVitals,
+  isDeceased = false,
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<'Todos' | 'Laboratorio' | 'Imagen' | 'Gabinete y Trazados'>('Todos');
   const [selectedSubcategory, setSelectedSubcategory] = useState<string>('Todas');
   const [searchFilter, setSearchFilter] = useState('');
 
   const SUBCATEGORY_ORDER = HOSPITAL_SUBCATEGORY_ORDER;
+  const studiesPool = liveStudies || caseData.studiesPool;
+  const effectiveVitals = liveVitals || caseData.vitalSigns;
 
   const SUBCATEGORY_SHORT_LABEL: Record<string, string> = {
     Gases: 'Gasometría',
@@ -103,7 +113,7 @@ export const DiagnosticStudiesTab: React.FC<DiagnosticStudiesTabProps> = ({
     'Endoscopia y Broncoscopia': 'Endoscopia / Broncoscopia',
   };
 
-  const categoryScopedStudies = caseData.studiesPool.filter(
+  const categoryScopedStudies = studiesPool.filter(
     (std) => selectedCategory === 'Todos' || std.category === selectedCategory
   );
 
@@ -126,8 +136,9 @@ export const DiagnosticStudiesTab: React.FC<DiagnosticStudiesTabProps> = ({
   });
 
   const isExamMode = caseData.mode === 'examen';
-  const totalStudies = caseData.studiesPool.length;
-  const unlockedCount = caseData.studiesPool.filter((s) => unlockedStudyIds.includes(s.id)).length;
+  const totalStudies = studiesPool.length;
+  const unlockedCount = studiesPool.filter((s) => unlockedStudyIds.includes(s.id)).length;
+  const hasLiveStudies = isDeceased || studiesPool.some((s) => Boolean(s.liveStatus));
 
   const categoryTabs: Array<{
     id: 'Todos' | 'Laboratorio' | 'Imagen' | 'Gabinete y Trazados';
@@ -173,6 +184,33 @@ export const DiagnosticStudiesTab: React.FC<DiagnosticStudiesTabProps> = ({
             )}
           </div>
         </div>
+
+        {/* Live Lab & Gabinete Sync Banner */}
+        {hasLiveStudies && (
+          <div
+            className={`mt-3 rounded-lg border px-3 py-2 text-xs flex flex-wrap items-center justify-between gap-2 ${
+              isDeceased
+                ? 'bg-rose-950/70 border-rose-500/80 text-rose-100'
+                : 'bg-[#040B1B] border-sky-700/60 text-sky-100'
+            }`}
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              {isDeceased ? (
+                <Skull className="w-4 h-4 text-rose-300 shrink-0" />
+              ) : (
+                <Activity className="w-4 h-4 text-sky-400 shrink-0" />
+              )}
+              <span>
+                {isDeceased
+                  ? 'Monitor y laboratorio en paro cardiorrespiratorio: el ECG muestra asistolia isoeléctrica y los paneles analíticos reflejan los trastornos letales ocurridos.'
+                  : 'Laboratorio, gasometría y trazados sincronizados en tiempo real con la evolución clínica, glucemia, fármacos STAT y posibles eventos iatrogénicos.'}
+              </span>
+            </div>
+            <span className="font-mono text-[11px] text-white/90 shrink-0">
+              Gluc {effectiveVitals.bloodGlucose} mg/dL · FC {effectiveVitals.heartRate} lpm · SpO₂ {effectiveVitals.oxygenSaturation}%
+            </span>
+          </div>
+        )}
 
         {/* Category & Search controls */}
         <div className="mt-4 pt-3 border-t border-blue-900/60 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
@@ -265,17 +303,21 @@ export const DiagnosticStudiesTab: React.FC<DiagnosticStudiesTabProps> = ({
         ) : (
           filteredPool.map((study) => {
             const isUnlocked = unlockedStudyIds.includes(study.id);
+            const liveTag = study.liveStatus;
+            const cardBorderClass = !isUnlocked
+              ? 'bg-[#040B1B] border-blue-900/60'
+              : !isExamMode && (liveTag === 'iatrogenia' || liveTag === 'critico')
+              ? 'bg-[#07132B] border-rose-500/80 shadow-md'
+              : !isExamMode && liveTag === 'mejoria'
+              ? 'bg-[#07132B] border-emerald-500/60 shadow-md'
+              : !isExamMode && study.isAbnormal
+              ? 'bg-[#07132B] border-amber-500/60 shadow-md'
+              : 'bg-[#07132B] border-blue-700/70';
 
             return (
               <div
                 key={study.id}
-                className={`rounded-xl border transition-all overflow-hidden ${
-                  isUnlocked
-                    ? !isExamMode && study.isAbnormal
-                      ? 'bg-[#07132B] border-amber-500/60 shadow-md'
-                      : 'bg-[#07132B] border-blue-700/70'
-                    : 'bg-[#040B1B] border-blue-900/60'
-                }`}
+                className={`rounded-xl border transition-all overflow-hidden ${cardBorderClass}`}
               >
                 <div className="p-4 sm:p-5">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -297,6 +339,29 @@ export const DiagnosticStudiesTab: React.FC<DiagnosticStudiesTabProps> = ({
                           <span className="text-[10px] font-semibold uppercase tracking-wider text-blue-300">
                             {study.category} · {study.subcategory}
                           </span>
+                          {isUnlocked && liveTag && (
+                            isExamMode ? (
+                              <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-[#040B1B] text-sky-200 border border-sky-700/70">
+                                Actualizado en tiempo real
+                              </span>
+                            ) : (
+                              <span
+                                className={`text-[10px] font-semibold px-2 py-0.5 rounded border inline-flex items-center gap-1 ${
+                                  liveTag === 'iatrogenia' || liveTag === 'critico'
+                                    ? 'bg-rose-950/80 text-rose-200 border-rose-500/70'
+                                    : liveTag === 'mejoria'
+                                    ? 'bg-emerald-950/80 text-emerald-200 border-emerald-500/70'
+                                    : 'bg-sky-950/80 text-sky-200 border-sky-500/70'
+                                }`}
+                              >
+                                {(liveTag === 'iatrogenia' || liveTag === 'critico') && (
+                                  <AlertTriangle className="w-2.5 h-2.5 shrink-0" />
+                                )}
+                                {liveTag === 'mejoria' && <Sparkles className="w-2.5 h-2.5 shrink-0" />}
+                                <span>{study.liveUpdateNote || 'Actualizado en vivo'}</span>
+                              </span>
+                            )
+                          )}
                           {isUnlocked && (
                             <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-blue-950 text-blue-200 border border-blue-700/70">
                               Reporte Emitido
@@ -331,7 +396,7 @@ export const DiagnosticStudiesTab: React.FC<DiagnosticStudiesTabProps> = ({
                   {/* Unlocked Study Content Report + Visual Tracing */}
                   {isUnlocked && (
                     <div className="mt-4 pt-4 border-t border-blue-900/60 space-y-3">
-                      <StudyTracingViewer study={study} vitalSigns={caseData.vitalSigns} />
+                      <StudyTracingViewer study={study} vitalSigns={effectiveVitals} />
 
                       <div className="bg-black/60 p-3.5 sm:p-4 rounded-xl border border-blue-900/70 font-mono text-xs text-white">
                         <div className="text-[10px] text-blue-300 font-sans uppercase font-semibold mb-1">

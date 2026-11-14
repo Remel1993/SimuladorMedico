@@ -350,25 +350,27 @@ async function callGeminiWithFallback(options: {
   responseMimeType?: string;
   thinkingLevel?: ThinkingLevel;
   timeoutMs: number;
+  modelsOverride?: readonly string[];
 }): Promise<string | null> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') return null;
 
+  const modelsToTry = options.modelsOverride || GEMINI_FREE_MODELS;
   const deadline = Date.now() + options.timeoutMs;
 
-  for (let i = 0; i < GEMINI_FREE_MODELS.length; i++) {
-    const model = GEMINI_FREE_MODELS[i];
+  for (let i = 0; i < modelsToTry.length; i++) {
+    const model = modelsToTry[i];
     const now = Date.now();
     if (now < (modelCooldownUntil[model] || 0)) continue;
 
     const remainingMs = deadline - now;
-    if (remainingMs < 1500) break;
+    if (remainingMs < 1200) break;
 
-    const hasNextAvailable = GEMINI_FREE_MODELS.slice(i + 1).some(
+    const hasNextAvailable = modelsToTry.slice(i + 1).some(
       (nextModel) => now >= (modelCooldownUntil[nextModel] || 0)
     );
     const attemptTimeoutMs = hasNextAvailable
-      ? Math.min(remainingMs, Math.max(4500, Math.floor(remainingMs * 0.65)))
+      ? Math.min(remainingMs, Math.max(2200, Math.floor(remainingMs * 0.6)))
       : remainingMs;
 
     const config: Record<string, any> = {};
@@ -744,7 +746,8 @@ Paciente (responde solo con el diálogo natural en primera persona del singular,
           contents: conversationPrompt,
           systemInstruction,
           thinkingLevel: ThinkingLevel.MINIMAL,
-          timeoutMs: 9500,
+          timeoutMs: 5000,
+          modelsOverride: ['gemini-3.1-flash-lite', 'gemini-4-hydrogen'],
         });
 
         if (rawReply) {

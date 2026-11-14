@@ -257,6 +257,11 @@ export function toFirstPersonClinicalSpeech(
     .replace(/\bpirosis\b/gi, 'ardor en la boca del estómago que sube al pecho')
     .replace(/\bfotofobia\b/gi, 'molestia fuerte con la luz')
     .replace(/\bfonofobia\b/gi, 'molestia fuerte con el ruido')
+    .replace(/luz[^.,;()]*\(\s*molestia fuerte con la luz\s*\)/gi, 'luz fuerte')
+    .replace(/ruido[^.,;()]*\(\s*molestia fuerte con el ruido\s*\)/gi, 'ruido fuerte')
+    .replace(/\bhemicraneana\b/gi, 'de un solo lado de la cabeza')
+    .replace(/\bcrisis generalizada\b/gi, 'episodio fuerte con sacudidas')
+    .replace(/\bcrisis epil[eé]ptica\b/gi, 'ataque con sacudidas')
     .replace(/\balodinia\b/gi, 'dolor al mínimo roce de la ropa')
     .replace(/\blagoftalmos\b/gi, 'dificultad para cerrar el ojo')
     .replace(/\boligomenorrea\b/gi, 'reglas muy espaciadas')
@@ -278,8 +283,15 @@ export function toFirstPersonClinicalSpeech(
     .replace(/\bacude\b/gi, 'vengo')
     .replace(/\bque\s+consulta\s+por\b|\bconsulta\s+por\b/gi, 'vengo por')
     .replace(/\bal\s+levantarse\b|\blevantarse\b/gi, (m) => (m.toLowerCase().startsWith('al') ? 'al levantarme' : 'levantarme'))
+    .replace(/\blavarse\b/gi, 'lavarme')
+    .replace(/\bcepillarse\b/gi, 'cepillarme')
+    .replace(/\bacostarse\b/gi, 'acostarme')
+    .replace(/\bsentarse\b/gi, 'sentarme')
+    .replace(/\bmoverse\b/gi, 'moverme')
     .replace(/\bsin\s+apoyarse\b|\bapoyarse\b/gi, (m) => (m.toLowerCase().startsWith('sin') ? 'sin apoyarme' : 'apoyarme'))
     .replace(/\bsin\s+haberse\b/gi, 'sin haberme')
+    .replace(/\bno\s+puede\b/gi, 'no puedo')
+    .replace(/\bdej[oó]\s+caer\b/gi, 'dejé caer')
     .replace(/\bsu\s+trabajo\b/gi, 'mi trabajo')
     .replace(/\bsu\s+turno\b/gi, 'mi turno')
     .replace(/\bpor\s+su\s+cuenta\b/gi, 'por mi cuenta')
@@ -302,7 +314,7 @@ export function toFirstPersonClinicalSpeech(
     .replace(new RegExp(`${WB_START}despert[oó]${WB_END}`, 'gi'), 'desperté')
     .replace(new RegExp(`${WB_START}ha\\s+presentado${WB_END}`, 'gi'), 'he tenido')
     .replace(new RegExp(`${WB_START}hab[ií]a\\s+permanecido${WB_END}`, 'gi'), 'estuve')
-    .replace(new RegExp(`${WB_START}notó${WB_END}`, 'gi'), 'noté')
+    .replace(new RegExp(`(?<!\\b(?:pap[aá]|mam[aá]|madre|padre|hermano|hermana|espos[oa]|pareja|hijo|hija|abuel[oa]|compa[ñn]er[oa]|m[eé]dico)\\s+)${WB_START}notó${WB_END}`, 'gi'), 'noté')
     .replace(new RegExp(`${WB_START}sinti[oó]${WB_END}`, 'gi'), 'sentí')
     .replace(new RegExp(`${WB_START}gir[oó]${WB_END}`, 'gi'), 'giré')
     .replace(new RegExp(`${WB_START}se\\s+qued[oó]${WB_END}`, 'gi'), 'me quedé')
@@ -494,7 +506,8 @@ function extractMatchingSentences(
   text: string | undefined,
   keywords: string[],
   patientInfo?: PatientChatPayload['patientInfo'],
-  previousPatientTexts: string[] = []
+  previousPatientTexts: string[] = [],
+  options?: { excludeNegated?: boolean }
 ): string | null {
   if (!text) return null;
   const sentences = text
@@ -505,6 +518,9 @@ function extractMatchingSentences(
   const scored: Array<{ text: string; score: number }> = [];
   for (const s of sentences) {
     const normS = normalizeText(s);
+    if (options?.excludeNegated && /^(?:niega|sin\b|no\s+(?:ha|he|presenta|refiere|tiene|tuvo))/.test(normS)) {
+      continue;
+    }
     const matchCount = keywords.reduce((acc, kw) => acc + (sentenceMatchesKeyword(normS, kw) ? 1 : 0), 0);
     if (matchCount > 0) {
       const adapted = toFirstPersonClinicalSpeech(s, patientInfo);
@@ -1431,6 +1447,7 @@ function generateContextualPatientReplyInternal(payload: PatientChatPayload): st
     const cleanEvo = (patientInfo?.evolutionTime || '')
       .replace(/\s+de\s+evoluci[oó]n$/i, '')
       .replace(/\s+post-inmovilizaci[oó]n$/i, ' desde que me pusieron el yeso o férula')
+      .replace(/\b1?\s*crisis\s+generalizada\b/gi, 'un episodio fuerte con sacudidas y pérdida del conocimiento')
       .trim();
     const evoText = cleanEvo
       ? isPediatric
@@ -1542,14 +1559,29 @@ function generateContextualPatientReplyInternal(payload: PatientChatPayload): st
       return wrapConfirm('Sí doctor, todo empezó hace 3 días de golpe con un escalofrío muy fuerte y fiebre de 39 grados.');
     }
     const temp = vitalSigns?.temperature;
-    const normIllness = normalizeText(patientInfo?.currentIllness || '');
-    const mentionsFeverInChart = normIllness.includes('fiebre') || normIllness.includes('febric') || (temp !== undefined && temp >= 37.6);
+    const normIllness = normalizeText(patientInfo?.currentIllness || '')
+      .replace(/\b(?:niega|sin|ausencia de|no ha tenido|no refiere|no presenta|no tuvo)\s+[^.;]+/g, ' ');
+    const explicitPastFever =
+      /\b(?:tuvo|tuve|presento|con|presenta|refiere|inicio con|comenzo con|acompanad[oa] de|episodio de)\s+(?:[a-z]+\s+){0,4}(?:fiebre|febricula|calentura)\b/.test(
+        normIllness
+      );
+    const mentionsFeverInChart = (temp !== undefined && temp >= 37.6) || (explicitPastFever && (temp === undefined || temp >= 37.2));
     if (mentionsFeverInChart) {
-      const feverMatch = extractMatchingSentences(patientInfo?.currentIllness, ['fiebre', 'febric', 'escalofrio', 'sudor', 'diaforesis', 'calentura'], patientInfo, previousPatientTexts);
+      const feverMatch = extractMatchingSentences(
+        patientInfo?.currentIllness,
+        ['fiebre', 'febric', 'escalofrio', 'sudor', 'diaforesis', 'calentura'],
+        patientInfo,
+        previousPatientTexts,
+        { excludeNegated: true }
+      );
       if (temp !== undefined && temp >= 38.0) {
         return wrapConfirm(`Sí doctor, ${isPediatric ? `mi niño ha tenido fiebre alta (ahorita trae ${temp.toFixed(1)}°C)` : `tengo fiebre alta (ahorita traigo ${temp.toFixed(1)}°C)`}. ${feverMatch || ''}`.trim());
       }
-      return wrapConfirm(`Sí doctor, he sentido algo de calentura${temp ? ` (alrededor de ${temp.toFixed(1)}°C)` : ''}. ${feverMatch || ''}`.trim());
+      return wrapConfirm(
+        feverMatch
+          ? `Sí doctor, ${feverMatch.charAt(0).toLowerCase()}${feverMatch.slice(1)}`
+          : `Sí doctor, he sentido algo de calentura${temp && temp >= 37.5 ? ` (alrededor de ${temp.toFixed(1)}°C)` : ''}.`
+      );
     }
     const sweatMatch = extractMatchingSentences(patientInfo?.currentIllness, ['sudor', 'diaforesis', 'sudoracion', 'escalofrio'], patientInfo, previousPatientTexts);
     if (sweatMatch) {
@@ -1608,12 +1640,12 @@ function generateContextualPatientReplyInternal(payload: PatientChatPayload): st
     }
     const painKeywords = ['punz', 'opres', 'ardor', 'retortijon', 'calambre', 'ulcera', 'epigastri', 'hipocondrio', 'lumbar', 'pecho', 'costilla', 'espalda', 'abdomen', 'estomago', 'irradia', 'fosa', 'cuadrante', 'pierna', 'cabeza', 'desproporcionad'];
     const painMatch =
-      extractMatchingSentences(patientInfo?.currentIllness, painKeywords, patientInfo, previousPatientTexts) ||
-      extractMatchingSentences(combinedClinicalText, painKeywords, patientInfo, previousPatientTexts);
+      extractMatchingSentences(patientInfo?.currentIllness, painKeywords, patientInfo, previousPatientTexts, { excludeNegated: true }) ||
+      extractMatchingSentences(combinedClinicalText, painKeywords, patientInfo, previousPatientTexts, { excludeNegated: true });
     if (painMatch) return wrapConfirm(painMatch);
     const hasPainInReason = normalizeText(patientInfo?.consultReason || '').includes('dolor');
     if (hasPainInReason) {
-      const anyPainSentence = extractMatchingSentences(patientInfo?.currentIllness, painKeywords, patientInfo, []);
+      const anyPainSentence = extractMatchingSentences(patientInfo?.currentIllness, painKeywords, patientInfo, [], { excludeNegated: true });
       if (anyPainSentence && anyPainSentence.length <= 220) {
         return wrapConfirm(anyPainSentence);
       }
